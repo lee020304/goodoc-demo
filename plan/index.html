@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>프로젝트 기획서 · 굿닥 AI 병원 안내 챗봇</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=Noto+Sans+KR:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --bg:#f7f8f7; --paper:#fff; --ink:#1b2220; --muted:#5d6a66; --faint:#8b9995;
+  --line:#e2e8e6; --accent:#0e6e62; --accent-soft:#e6f2ef;
+  --ok:#2e7d4f; --ok-soft:#e4f1e9; --warn:#a06a15; --warn-soft:#f8efdd;
+  --gap:#96473b; --gap-soft:#f5e4e1;
+  --sh:0 1px 2px rgba(27,34,32,.04), 0 10px 30px -22px rgba(27,34,32,.3);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1413; --paper:#171f1d; --ink:#e6ecea; --muted:#9aa8a4; --faint:#6f7d79;
+    --line:#28322f; --accent:#57c3b1; --accent-soft:#16302c;
+    --ok:#69ba8b; --ok-soft:#15291f; --warn:#d3a459; --warn-soft:#2a2417;
+    --gap:#d18579; --gap-soft:#2e1e1b;
+    --sh:0 1px 2px rgba(0,0,0,.4), 0 10px 30px -22px rgba(0,0,0,.8);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f1413; --paper:#171f1d; --ink:#e6ecea; --muted:#9aa8a4; --faint:#6f7d79;
+  --line:#28322f; --accent:#57c3b1; --accent-soft:#16302c;
+  --ok:#69ba8b; --ok-soft:#15291f; --warn:#d3a459; --warn-soft:#2a2417;
+  --gap:#d18579; --gap-soft:#2e1e1b;
+  --sh:0 1px 2px rgba(0,0,0,.4), 0 10px 30px -22px rgba(0,0,0,.8);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);line-height:1.8;
+  font-family:"Noto Sans KR",system-ui,-apple-system,"Malgun Gothic",sans-serif;
+  -webkit-font-smoothing:antialiased}
+.wrap{max-width:860px;margin:0 auto;padding:0 20px 100px}
+
+.cover{padding:64px 0 34px;border-bottom:2px solid var(--ink);margin-bottom:8px}
+.cover .eyebrow{font-size:12px;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--accent);font-weight:700;margin:0 0 14px;
+  font-family:"IBM Plex Mono",ui-monospace,monospace}
+.cover h1{font-family:"Gowun Batang",serif;font-weight:700;margin:0 0 10px;
+  font-size:clamp(28px,5vw,40px);line-height:1.28;letter-spacing:-.01em}
+.cover .task{font-size:17px;color:var(--muted);margin:0 0 22px;font-weight:300}
+.cover .meta{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font-size:13px;padding:5px 12px;border-radius:999px;background:var(--paper);
+  border:1px solid var(--line);color:var(--muted)}
+.chip b{color:var(--ink);font-weight:500}
+
+nav.toc{background:var(--paper);border:1px solid var(--line);border-radius:12px;
+  padding:18px 22px;margin:26px 0 8px;box-shadow:var(--sh)}
+nav.toc p{margin:0 0 10px;font-size:12px;letter-spacing:.1em;color:var(--faint);
+  text-transform:uppercase;font-weight:600}
+nav.toc ol{margin:0;padding-left:20px;columns:2;column-gap:28px}
+nav.toc li{font-size:14px;margin-bottom:5px;break-inside:avoid}
+nav.toc a{color:var(--ink);text-decoration:none}
+nav.toc a:hover{color:var(--accent);text-decoration:underline}
+@media(max-width:620px){nav.toc ol{columns:1}}
+
+section{margin-top:52px;scroll-margin-top:20px}
+h2{font-family:"Gowun Batang",serif;font-size:24px;font-weight:700;margin:0 0 6px;
+  letter-spacing:-.01em;padding-bottom:10px;border-bottom:1px solid var(--line)}
+h3{font-size:16px;font-weight:700;margin:28px 0 10px}
+h4{font-size:14.5px;font-weight:700;margin:20px 0 8px;color:var(--muted)}
+p{margin:0 0 10px;font-size:15px}
+p.lede{color:var(--muted);font-weight:300;max-width:64ch;margin-bottom:18px}
+ul{margin:0 0 14px;padding-left:20px}
+li{font-size:15px;margin-bottom:6px}
+li::marker{color:var(--faint)}
+strong{font-weight:600}
+
+.tablebox{overflow-x:auto;border:1px solid var(--line);border-radius:12px;
+  background:var(--paper);margin:14px 0 18px;box-shadow:var(--sh)}
+table{width:100%;border-collapse:collapse;font-size:14px;min-width:480px}
+th{text-align:left;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--faint);font-weight:600;padding:12px 14px;border-bottom:1px solid var(--line);
+  white-space:nowrap}
+td{padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td.num{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;
+  text-align:right;white-space:nowrap}
+tfoot td{font-weight:700;background:var(--accent-soft)}
+
+blockquote{margin:14px 0;padding:2px 0 2px 18px;border-left:3px solid var(--accent);
+  font-size:14.5px;line-height:1.75}
+blockquote .src{display:block;font-size:12px;color:var(--faint);margin-top:5px;
+  font-family:"IBM Plex Mono",monospace}
+
+.callout{background:var(--paper);border:1px solid var(--line);border-radius:12px;
+  padding:18px 22px;margin:16px 0;box-shadow:var(--sh)}
+.callout.key{border-left:4px solid var(--accent)}
+.callout.honest{border-left:4px solid var(--gap)}
+.callout h4{margin:0 0 8px;color:var(--ink);font-size:15px}
+.callout p:last-child{margin-bottom:0}
+
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:1px;
+  background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden;
+  margin:16px 0}
+.tile{background:var(--paper);padding:18px}
+.tile .n{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;
+  font-size:25px;font-weight:600;color:var(--accent);line-height:1.15}
+.tile .n small{font-size:13px;color:var(--muted);margin-left:2px;font-weight:500}
+.tile .k{font-size:12.5px;color:var(--muted);margin-top:5px}
+.tile .s{font-size:11.5px;color:var(--faint);margin-top:2px}
+
+.tag{display:inline-block;font-size:11.5px;padding:2px 8px;border-radius:5px;
+  font-weight:500;white-space:nowrap}
+.tag.done{background:var(--ok-soft);color:var(--ok)}
+.tag.wait{background:var(--warn-soft);color:var(--warn)}
+.tag.gap{background:var(--gap-soft);color:var(--gap)}
+
+footer{margin-top:64px;padding-top:22px;border-top:1px solid var(--line);
+  font-size:12.5px;color:var(--faint);line-height:1.85}
+footer a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="cover">
+<p class="eyebrow">스마트인재개발원 · 핵심프로젝트 · 기획발표</p>
+<h1>프로젝트 기획서</h1>
+<p class="task">과제명 · 굿닥 홈페이지 내 AI 병원 안내 챗봇</p>
+<div class="meta"><span class="chip">팀 <b>독수리5형제</b></span><span class="chip">발표 <b>2026-09-30</b></span><span class="chip">작성 <b>2026-09-07</b></span></div>
+</div>
+<nav class="toc"><p>목차</p><ol>
+<li><a href="#s0">프로젝트 개요</a></li>
+<li><a href="#s1">(1) 제안 배경 — PEST 분석</a></li>
+<li><a href="#s2">(2) 시장 분석</a></li>
+<li><a href="#s3">(3) STP 전략</a></li>
+<li><a href="#s4">(4) 필요성 · 차별성 · 기대효과</a></li>
+<li><a href="#s5">(5) 개발 내용</a></li>
+<li><a href="#s6">(6) 개발 일정</a></li>
+<li><a href="#s7">(7) 수행 방법</a></li>
+<li><a href="#s8">(8) 참여 인원</a></li>
+<li><a href="#s9">[부록] 검증 결과와 한계</a></li>
+</ol></nav>
+<section id="s0"><h2>프로젝트 개요</h2>
+<div class="tiles">
+<div class="tile"><div class="n">79,819<small>곳</small></div><div class="k">전국 병원</div><div class="s">17개 시도 · 256개 시군구</div></div>
+<div class="tile"><div class="n">4,311<small>건</small></div><div class="k">굿닥 앱 리뷰</div><div class="s">2017-05 ~ 2026-08</div></div>
+<div class="tile"><div class="n">57,783<small>곳</small></div><div class="k">진료과 매핑</div><div class="s">기관별 보유 진료과</div></div>
+<div class="tile"><div class="n">19<small>/19</small></div><div class="k">단위 테스트</div><div class="s">의료 표현 금지 검증 포함</div></div>
+</div>
+<div class="tablebox"><table><thead><tr><th>구분</th><th>내용</th></tr></thead><tbody><tr><td>팀명</td><td>독수리5형제</td></tr><tr><td>팀원 및 역할</td><td>팀장 이영훈 (PM · Back-end · 데이터 수집 · LangChain 체인)<br>팀원 김강민(부팀장) · 조성종 · 이제형 · 박찬균</td></tr><tr><td>아이디어 주제</td><td>공공 의료데이터 기반 대화형 병원 안내 서비스<br>— 굿닥 홈페이지에 삽입하는 AI 병원 안내 챗봇</td></tr><tr><td>리버스 엔지니어링<br>챌린지 포인트</td><td>기존 굿닥의 ‘조건별 필터 검색’을 분해하여, 사용자가 조건을 직접 고르지 않고 자연어 한 문장으로 말하면 시스템이 조건을 추출·조합해 병원을 찾아주는 구조로 재구성</td></tr></tbody></table></div>
+</section>
+<section id="s1"><h2>(1) 제안 배경 — 외부 환경 분석 (PEST)</h2>
+<h3>기술적 배경 (Technological)</h3><ul><li>공공데이터포털을 통해 건강보험심사평가원의 병원 정보가 Open API로 개방되어, 전국 요양기관의 위치·진료과·진료시간·주차·평가등급을 조회할 수 있다.</li><li>본 프로젝트는 <strong>4종 API의 활용신청을 완료</strong>하고 실제 호출로 응답을 확인하였다. (병원정보 · 의료기관별상세정보 · 병원평가정보 · 비급여진료비)</li><li>LLM과 LangChain의 보급으로 자연어에서 조건을 구조화하는 기능을 소규모 팀도 구현할 수 있는 환경이 되었다.</li><li>의료 분야는 오작동 시 위험이 크므로, LLM이 응답하지 못할 때를 대비한 규칙 기반 대체 경로를 함께 구현하였다.</li></ul>
+<h3>사회적 배경 (Social)</h3><ul><li>1인 가구·맞벌이 증가로 평일 낮 병원 방문이 어려운 인구가 늘어, 야간·주말 진료 가능 여부가 병원 선택의 핵심 조건이 되었다.</li><li>고령화로 의료 이용은 늘지만, 정보 탐색에 익숙하지 않은 층은 여러 조건을 직접 필터링하는 방식에 어려움을 겪는다.</li><li>코로나19 이후 비대면 진료와 앱 접수가 일상화되어 앱에서 병원 정보를 확인하는 행동이 자리 잡았다.</li></ul>
+<h3>경제적 배경 (Economic)</h3><ul><li>의료비 부담 증가로 비급여 진료비를 사전에 비교하려는 수요가 있으며, 심평원이 해당 정보를 공개하고 있다.</li><li>잘못된 병원 선택은 재방문·교통비·시간 손실이라는 직접 비용이 된다.</li><li>공공데이터는 무료로 제공되어 운영 원가가 낮다. 별도 구매 비용 없이 전국 단위 서비스가 가능하다.</li></ul>
+<h3>정책적 배경 (Political)</h3><ul><li>정부의 공공데이터 개방 정책에 따라 심평원 의료 데이터가 지속 확대·갱신된다.</li><li><strong>의료법상 비의료인의 진단 행위는 금지된다.</strong> 따라서 본 서비스는 진단을 하지 않고 ‘어느 진료과로 가면 되는지’만 안내하도록 설계 단계에서 제약을 두었다.</li></ul>
+</section>
+<section id="s2"><h2>(2) 시장 분석</h2>
+<p class="lede">추정치가 아니라 직접 수집한 실측치이다.</p>
+<div class="tablebox"><table><thead><tr><th>항목</th><th>수치</th><th>출처</th></tr></thead><tbody><tr><td>전국 요양기관 수</td><td>79,819곳</td><td>심평원 병원정보서비스 (직접 수집)</td></tr><tr><td>대상 지역</td><td>17개 시도 · 256개 시군구</td><td>동일</td></tr><tr><td>굿닥 앱 설치 수</td><td>500만 이상</td><td>Google Play</td></tr><tr><td>굿닥 앱 평가 수</td><td>34,930건</td><td>Google Play</td></tr><tr><td>굿닥 앱 평균 별점</td><td>4.74점</td><td>Google Play</td></tr></tbody></table></div>
+<ul><li>병원 정보를 제공하는 앱은 다수 존재하나 대부분 ‘목록 제공’에 머물러 있으며, 사용자가 조건을 직접 조합해야 한다.</li><li>굿닥은 설치 500만 이상의 주요 서비스이지만, 리뷰 분석 결과 ‘원하는 조건의 병원을 찾지 못한다’는 불만이 반복 확인되었다.</li></ul>
+</section>
+<section id="s3"><h2>(3) STP 전략</h2>
+<h3>시장 세분화 (Segmentation)</h3>
+<p>시장 구분 · <strong>B2C</strong> (기존 플랫폼 안에 기능을 얹는 형태이므로 B2B2C 성격도 가진다)</p>
+<div class="tablebox"><table><thead><tr><th>구분 기준</th><th>세분화</th></tr></thead><tbody><tr><td>상황</td><td>① 갑작스러운 증상 ② 만성 질환 정기 방문 ③ 자녀 동반 ④ 야간·주말 발생</td></tr><tr><td>연령</td><td>20~30대(탐색 능숙) · 40~50대(가족 단위) · 60대 이상(탐색 어려움)</td></tr><tr><td>거주</td><td>수도권(선택지 과다) · 지방(선택지 부족, 이동 부담)</td></tr><tr><td>시간 제약</td><td>평일 낮 가능 · 평일 낮 불가(직장인·학생)</td></tr><tr><td>정보 활용</td><td>조건 필터를 다루는 층 · 검색 자체가 부담인 층</td></tr></tbody></table></div>
+<h3>표적 시장 (Targeting)</h3>
+<div class="callout key"><h4>핵심 표적</h4><p>갑작스러운 증상이 생겼으나 어느 진료과·어느 병원에 가야 할지 판단하기 어렵고, 시간 제약(야간·주말·퇴근 후)이 있는 <strong>20~40대 생활인</strong></p></div>
+<ul><li>근거 ① 부정 리뷰 분석에서 ‘병원 탐색·선택 실패’가 AI로 해결 가능한 영역 중 가장 큰 비중을 차지하였다.</li><li>근거 ② 조건이 복잡할수록(시간·거리·진료과 동시 고려) 기존 필터 검색의 불편이 커지므로 대화형 안내의 효용이 가장 크다.</li><li>근거 ③ 해당 층은 앱 사용에 익숙해 채팅 인터페이스 진입 장벽이 낮다.</li></ul>
+<h3>포지셔닝 (Positioning)</h3>
+<div class="callout key"><h4>아이덴티티</h4><p>“진단하지 않는다. 병원 선택만 돕는다.”</p></div>
+<div class="tablebox"><table><thead><tr><th>구분</th><th>포지션</th></tr></thead><tbody><tr><td>기존 병원 검색</td><td>정보를 나열한다 — 판단은 사용자 몫</td></tr><tr><td>증상 검색 서비스</td><td>질병을 추정한다 — 의료법·신뢰성 문제</td></tr><tr><td><strong>본 서비스</strong></td><td><strong>판단하지 않고 ‘어디로 가면 되는지’를 근거와 함께 안내한다</strong></td></tr></tbody></table></div>
+</section>
+<section id="s4"><h2>(4) 필요성 · 차별성 · 기대효과</h2>
+<h3>필요성</h3>
+<p class="lede">굿닥 앱 리뷰 4,311건(2017-05~2026-08)을 수집해 부정 리뷰 837건(19.4%)을 분석하였다. 한 리뷰는 하나의 항목에만 배정하는 배타적 분류를 적용하여 비율 합계가 정확히 100%가 된다.</p>
+<div class="tablebox"><table><thead><tr><th>순위</th><th>불만 항목</th><th>건수</th><th>비율</th></tr></thead><tbody><tr><td class="num">1</td><td>앱 오류·인증</td><td class="num">179</td><td class="num">21.4%</td></tr><tr><td class="num">2</td><td>비대면진료·약 수령</td><td class="num">152</td><td class="num">18.2%</td></tr><tr><td class="num">3</td><td>예약/접수 실패</td><td class="num">134</td><td class="num">16.0%</td></tr><tr><td class="num">4</td><td>병원 탐색·선택 실패</td><td class="num">115</td><td class="num">13.7%</td></tr><tr><td class="num">5</td><td>구체적 사유 미기재(단문)</td><td class="num">68</td><td class="num">8.1%</td></tr><tr><td class="num">6</td><td>병원 정보 부정확</td><td class="num">38</td><td class="num">4.5%</td></tr><tr><td class="num">7</td><td>결제·포인트</td><td class="num">34</td><td class="num">4.1%</td></tr><tr><td class="num">8</td><td>복합·기타 불만(장문)</td><td class="num">31</td><td class="num">3.7%</td></tr><tr><td class="num">9</td><td>광고·알림 과다</td><td class="num">20</td><td class="num">2.4%</td></tr><tr><td class="num">10</td><td>계정·가족 등록</td><td class="num">19</td><td class="num">2.3%</td></tr><tr><td class="num">11</td><td>고객센터·응대</td><td class="num">17</td><td class="num">2.0%</td></tr><tr><td class="num">12</td><td>병원 측 응대 불만</td><td class="num">14</td><td class="num">1.7%</td></tr><tr><td class="num">13</td><td>의미 불명(훼손·오타 텍스트)</td><td class="num">9</td><td class="num">1.1%</td></tr><tr><td class="num">14</td><td>리뷰 신뢰성 문제</td><td class="num">7</td><td class="num">0.8%</td></tr></tbody><tfoot><tr><td class="num"></td><td>합계</td><td class="num">837</td><td class="num">100.0%</td></tr></tfoot></table></div>
+<h4>고객이 실제로 남긴 말</h4>
+<blockquote>사용하면서 불편한점이 많아 어디부터 이야기를 해야 하는지 감이 잘안잡히지만 병원이 찾을수 없는 점과 거리와 현제위치는 서울 중구에서 고정이 되서 병원이 항목에 없다는걸 찾느라 시간을 소비했습니다 그리고 당연하게 현제위치 버튼과 주소 설정 그리고 카카오톡으로 직접 리뷰요청 알림에 적힌 병원 명을 복사해서 검색했으며 삭제와 재설치 재부팅까지 <span class='src'>1점 · 공감 209</span></blockquote>
+<blockquote>휴대폰 인증 후에 본인인증 완료 버튼을 아무리 눌러도 완료가 안되서 병원 예약을 못하고 있네요.. 어플 오류때문에 제때 병원에 못가게 되면 누가 책임져주나요.. 이미 몇번 예약했는데도 갑자기 본인인증은 왜 하라고 해서.. 그리고 병원 검색하면 서울시 중구로 설정되는거 좀!!! 개선부탁드립니다<span class='src'>1점 · 공감 204</span></blockquote>
+<blockquote>병원찾기에서 예약이 바로 되게 해주세요. 전화하기만 보이는데 맞는건가요? 병원예약이랑 접수로 들어가서는 병원검색안되나요? 제가 못찾는건지 스크롤로 계속 내려서 병원 찾아야되는건가요? 똑딱 어플처럼 찜 목록에서 해당병원예약을 바로 할 수있게 연결되면 더 편할꺼 같애요<span class='src'>2점 · 공감 67</span></blockquote>
+<p>위 유형(조건별 검색 실패)의 리뷰는 총 <strong>34건</strong>이다.</p>
+<h3>차별성</h3>
+<div class="tablebox"><table><thead><tr><th>구분</th><th>굿닥(기존)</th><th>네이버 지도</th><th>본 서비스</th></tr></thead><tbody><tr><td>검색 방식</td><td>조건을 직접 선택</td><td>지명·상호 검색</td><td><strong>자연어 한 문장</strong></td></tr><tr><td>증상 입력</td><td>불가</td><td>불가</td><td><strong>진료과 힌트로 변환</strong></td></tr><tr><td>거리순 정렬</td><td>리뷰상 부재 지적</td><td>지원</td><td>위경도 기반 지원</td></tr><tr><td>진료시간 조건</td><td>정확도 불만 다수</td><td>일부</td><td>공공데이터 기반 필터</td></tr><tr><td>추천 근거 제시</td><td>없음</td><td>없음</td><td><strong>추천 이유 항상 표기</strong></td></tr><tr><td>없는 정보 처리</td><td>—</td><td>—</td><td><strong>‘미확인’으로 명시</strong></td></tr><tr><td>진단 여부</td><td>하지 않음</td><td>하지 않음</td><td>하지 않음 (테스트로 검증)</td></tr></tbody></table></div>
+<ul><li><strong>조건을 고르는 것이 아니라 말하면 된다.</strong> ‘비염인데 일요일에 하고 주차되는 가까운 병원’ 한 문장으로 4개 조건이 동시에 적용된다.</li><li><strong>모든 추천에 이유를 붙인다.</strong> ‘0.42km · 이비인후과 진료 · 전문의 2명 · 주차 20대 · 평가 2.5등급’</li><li><strong>없는 정보를 지어내지 않는다.</strong> 이용자 별점은 공공데이터에 없으므로 ‘안내할 수 없다’고 답하고 정부 적정성 평가등급으로 대체한다.</li><li><strong>지역이 모호하면 되묻는다.</strong> ‘북구’는 부산·대구·광주·울산에 모두 있으므로 임의로 선택하지 않는다.</li></ul>
+<h3>기대효과</h3><ul><li>병원 선택 탐색 시간 단축 — 조건 4개 동시 검색이 1~2회 대화로 끝난다.</li><li>헛걸음 감소 — 진료시간·휴진일을 공공데이터로 확인한다.</li><li>정보 탐색 취약층 포용 — 필터를 다룰 줄 몰라도 말로 찾을 수 있다.</li><li>이탈 방지 — ‘네이버 검색이 더 편리하다’는 리뷰가 실제로 존재한다.</li></ul>
+<h3>활용방안</h3><ul><li>약국 찾기로 확장 — 심평원 데이터에 약국이 포함되어 동일 구조로 확장 가능</li><li>비급여 진료비 비교 — 이미 활용신청을 완료한 API로 구현 가능</li><li>지자체·보건소 안내 서비스로 이식</li><li>고령자 대상 음성 인터페이스 — 입력 방식만 바꾸면 된다</li></ul>
+</section>
+<section id="s5"><h2>(5) 개발 내용</h2>
+<h3>개발 목표</h3>
+<div class="callout key"><p>공공 의료데이터를 활용한 대화형 병원 안내 서비스를 굿닥 홈페이지에 제공함으로써, 어느 병원에 가야 할지 판단하기 어려운 이용자의 탐색 부담을 줄이고 적절한 진료과와 병원으로 연결한다.</p></div>
+<h3>개발 내용</h3>
+<div class="tablebox"><table><thead><tr><th>기능</th><th>내용</th><th>상태</th></tr></thead><tbody><tr><td>자연어 조건 추출</td><td>문장에서 진료과·지역·시간·주차·전문의 등 14개 항목 추출</td><td><span class="tag done">구현 완료</span></td></tr><tr><td>증상→진료과 변환</td><td>‘비염’, ‘허리디스크’, ‘공황장애’ 등을 진료과 힌트로 변환 (병명 미생성)</td><td><span class="tag done">구현 완료</span></td></tr><tr><td>전국 지역 인식</td><td>256개 시군구 인식. 동명 지역은 되물음</td><td><span class="tag done">구현 완료</span></td></tr><tr><td>조건 검색</td><td>진료과·지역·종별·전문의 수·거리 필터</td><td><span class="tag done">구현 완료</span></td></tr><tr><td>시간 조건 검색</td><td>지금 진료중 / 일요일 / 토요일 / 야간응급 / 특정 시각까지</td><td><span class="tag done">구현 완료</span></td></tr><tr><td>주차 조건 검색</td><td>주차 가능 대수 기준 필터</td><td><span class="tag done">구현 완료</span></td></tr><tr><td>설명 가능한 추천</td><td>추천 이유를 항상 함께 출력</td><td><span class="tag done">구현 완료</span></td></tr><tr><td>예약 안내</td><td>병원→진료과→날짜→시간→확인, 전화 연결·예약 페이지 이동</td><td><span class="tag done">구현 완료</span></td></tr><tr><td>의료 표현 차단</td><td>진단 유도 문장에 병명 미출력. 단위 테스트로 검증</td><td><span class="tag done">구현 완료</span></td></tr><tr><td>챗봇 위젯 UI</td><td>우측 하단 캐릭터형 도우미, 모바일 대응</td><td><span class="tag done">구현 완료</span></td></tr><tr><td>리뷰 RAG 비교</td><td>병원별 후기 확보 후 항목별 긍·부정 비교</td><td><span class="tag wait">Phase 2</span></td></tr></tbody></table></div>
+</section>
+<section id="s6"><h2>(6) 개발 일정</h2>
+<div class="tablebox"><table><thead><tr><th>추진내용</th><th>담당자</th><th>일정</th></tr></thead><tbody><tr><td>프로젝트 계획 및 대상기업 선정</td><td>전원</td><td>9월 1주</td></tr><tr><td>데이터 수집 (앱 리뷰)</td><td>이영훈</td><td>9월 1주</td></tr><tr><td>기존 서비스 정밀 분석 (Pain Point 도출)</td><td>이영훈</td><td>9월 1~2주</td></tr><tr><td>공공데이터 API 확보 및 검증</td><td>이영훈</td><td>9월 1~2주</td></tr><tr><td><strong>1차 멘토링</strong></td><td>전원</td><td><strong>9월 9일</strong></td></tr><tr><td>DCX 워크시트 · 빅데이터 분석 정의서</td><td>전원</td><td>9월 2~3주</td></tr><tr><td><strong>2차 멘토링</strong></td><td>전원</td><td><strong>9월 17일</strong></td></tr><tr><td>시제품 설계 (대화 흐름·화면)</td><td>전원</td><td>9월 2~3주</td></tr><tr><td>시제품 제작 (조건 추출·검색·예약 안내)</td><td>이영훈</td><td>9월 3~4주</td></tr><tr><td><strong>3차 멘토링</strong></td><td>전원</td><td><strong>9월 29일</strong></td></tr><tr><td><strong>기획 발표</strong></td><td>전원</td><td><strong>9월 30일</strong></td></tr><tr><td>전국 데이터 확대 및 성능 개선</td><td>전원</td><td>10월 1~2주</td></tr><tr><td>시제품 완성 및 시연 준비</td><td>전원</td><td>10월 2주</td></tr><tr><td><strong>최종 발표</strong></td><td>전원</td><td><strong>10월 16일</strong></td></tr></tbody></table></div>
+</section>
+<section id="s7"><h2>(7) 수행 방법</h2>
+<h3>데이터 확보 방안</h3>
+<h4>① 굿닥 앱 리뷰</h4>
+<div class="tablebox"><table><thead><tr><th>항목</th><th>내용</th></tr></thead><tbody><tr><td>데이터 출처</td><td>Google Play (패키지명 com.ksncho.hospitalinfo)</td></tr><tr><td>수집 방법</td><td>google-play-scraper (최신순·평점순 각각 수집 후 중복 제거)</td></tr><tr><td>데이터 종류</td><td>앱 이용자 리뷰 텍스트</td></tr><tr><td>데이터 유형 / 형식</td><td>텍스트 / csv</td></tr><tr><td>컬럼</td><td>review_id, score, content, at, thumbsUpCount, appVersion</td></tr><tr><td>데이터 개수</td><td>4,311건 (2017-05 ~ 2026-08) · 부정 리뷰 837건(19.4%)</td></tr><tr><td>개인정보</td><td>작성자명(userName) 미수집</td></tr></tbody></table></div>
+<h4>② 심평원 공공데이터 (Open API)</h4>
+<div class="tablebox"><table><thead><tr><th>서비스</th><th>확보 항목</th><th>수집 결과</th></tr></thead><tbody><tr><td>병원정보서비스</td><td>병원명·주소·위경도·종별·의사 수</td><td>79,819곳</td></tr><tr><td>의료기관별상세정보서비스</td><td>요일별 진료시간·점심·휴진일·주차·응급·과별 전문의</td><td>3,295곳 (수집 진행 중)</td></tr><tr><td>병원평가정보서비스</td><td>적정성 평가 등급(1~5)</td><td>상세 수집과 동시 진행</td></tr><tr><td>비급여진료비정보조회서비스</td><td>비급여 항목별 금액</td><td>확보 (Phase 2 활용)</td></tr></tbody></table></div>
+<p>진료과 매핑 · 응답에 진료과 필드가 없어 요청 파라미터 <code>dgsbjtCd</code>로 20개 진료과를 순회 조회하여 기관번호(ykiho) 매핑을 생성. <strong>57,783곳</strong> 확보</p>
+<div class="callout"><h4>데이터 검증 과정에서 확인한 사항</h4><p>· 광주광역시가 전남과 통합되어 <strong>‘전남광주통합특별시’(코드 360000)</strong>로 관리되고 있었다. 통상 알려진 코드(240000)로는 3건만 조회되어 시도코드 17개를 전수 검증하였다.</p><p>· 전국을 한 번에 조회하면 페이지당 30초로 약 6시간이 걸리나, 시도별로 분할하면 <strong>27분</strong>으로 단축된다(약 10배). 실측 후 분할 방식을 채택하였다.</p></div>
+<h3>기능별 수행 방법</h3>
+<div class="tablebox"><table><thead><tr><th>기능</th><th>사용 기술 / 방법</th></tr></thead><tbody><tr><td>병원 정보 조회</td><td>심평원 병원정보서비스 (hospInfoServicev2)</td></tr><tr><td>진료시간·주차·응급</td><td>심평원 의료기관별상세정보서비스 (MadmDtlInfoService2.8)</td></tr><tr><td>평가 등급</td><td>심평원 병원평가정보서비스 (hospAsmInfoService1)</td></tr><tr><td>앱 리뷰 수집</td><td>google-play-scraper</td></tr><tr><td>한국어 형태소 분석</td><td>kiwipiepy (자바 설치 불필요)</td></tr><tr><td>감성·키워드 분석</td><td>pandas, scikit-learn</td></tr><tr><td>자연어 조건 추출</td><td>규칙 기반(정규식·사전) + LangChain·Claude API 선택적 사용</td></tr><tr><td>거리 계산</td><td>위경도 하버사인(Haversine) 공식</td></tr><tr><td>웹 API 서버</td><td>FastAPI + uvicorn</td></tr><tr><td>챗봇 위젯 화면</td><td>HTML / CSS / JavaScript (프레임워크 없음)</td></tr><tr><td>시연용 배포</td><td>GitHub Pages (서버 없이 동작하는 단일 HTML)</td></tr><tr><td>협업·형상관리</td><td>GitHub, CLAUDE.md 작업 규칙 공유</td></tr><tr><td>품질 검증</td><td>단위 테스트 19건 (의료 표현 금지 검증 포함)</td></tr></tbody></table></div>
+<p>LLM 호출이 실패해도 규칙 기반 추출로 동작이 이어지도록 이중화하였다. 시연 중 외부 API 장애가 발생해도 서비스가 멈추지 않는다.</p>
+</section>
+<section id="s8"><h2>(8) 참여 인원</h2>
+<div class="tablebox"><table><thead><tr><th>이름</th><th>역할 및 능력</th></tr></thead><tbody><tr><td>이영훈</td><td>팀장 · PM · Back-end · 데이터 수집 · LangChain 체인 · 저장소 관리</td></tr><tr><td>김강민</td><td>부팀장 · (담당 배정 후 기입)</td></tr><tr><td>조성종</td><td>팀원 · (담당 배정 후 기입)</td></tr><tr><td>이제형</td><td>팀원 · (담당 배정 후 기입)</td></tr><tr><td>박찬균</td><td>팀원 · (담당 배정 후 기입)</td></tr></tbody></table></div>
+</section>
+<section id="s9"><h2>[부록] 검증 결과와 한계</h2>
+<h3>리뷰–병원 데이터 연결 검증</h3>
+<div class="tablebox"><table><thead><tr><th>검증 항목</th><th>결과</th></tr></thead><tbody><tr><td>병원 이름 표현이 등장한 리뷰</td><td>136건</td></tr><tr><td>추출된 고유 표현</td><td>119개</td></tr><tr><td>심평원과 일치한 이름</td><td>2개</td></tr><tr><td>리뷰에서 발견된 심평원 병원</td><td>6곳</td></tr></tbody></table></div>
+<div class="callout honest"><h4>구글 플레이 리뷰로는 병원 단위 연결이 불가능</h4><p>앱스토어 리뷰는 개별 병원이 아니라 ‘앱’ 자체에 대한 평가이기 때문이다. 이를 Phase 1에서 확인하여, 리뷰는 기획 근거로만 사용하고 <strong>리뷰 없이도 동작하는 구조를 먼저 구축</strong>하였다. 리뷰 RAG를 먼저 만들었다가 연결 실패로 전부 재작업하는 위험을 제거하였다.</p></div>
+<h3>현재 한계</h3><ul><li>이용자 별점은 공공데이터에 없다. 정부 적정성 평가등급으로 대체하되 ‘이용자 별점이 아님’을 명시한다.</li><li>진료시간·주차 상세정보는 전국 수집이 진행 중이다. 미수집 지역에서는 해당 조건을 적용하지 않고 그 사실을 사용자에게 알린다(결과 0건 방지).</li><li>키워드 기반 분류의 한계로 일부 리뷰가 다른 항목에 배정될 수 있어 수작업 검수를 병행한다.</li><li>병원별 이용자 후기는 굿닥 robots.txt가 AI 크롤러를 차단하고 있어 수집 여부를 담당 멘토 확인 후 결정한다.</li></ul>
+<h3>산출물</h3>
+<div class="tablebox"><table><thead><tr><th>구분</th><th>내용</th></tr></thead><tbody><tr><td>시연 화면</td><td><a href="https://lee020304.github.io/goodoc-demo/">lee020304.github.io/goodoc-demo</a></td></tr><tr><td>수집 데이터</td><td>리뷰 4,311건 · 병원 79,819곳 · 진료과 매핑 57,783곳</td></tr><tr><td>단위 테스트</td><td>19건 전부 통과</td></tr></tbody></table></div>
+</section>
+<footer><p>본 서비스는 병원 선택을 돕는 정보 제공 서비스이며 의학적 판단을 대신하지 않습니다.<br>데이터 출처 · 건강보험심사평가원 병원정보서비스 · 의료기관별상세정보서비스 · 병원평가정보서비스 · 비급여진료비정보조회서비스 · Google Play 굿닥 앱 리뷰<br>스마트인재개발원 2026 K-Digital Training 지역산업연계 데이터 분석과정 1회차 · 핵심프로젝트 · 팀 독수리5형제</p></footer>
+</div>
+</body>
+</html>
