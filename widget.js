@@ -41,100 +41,117 @@
 
   /* ── 지역 사전: 데이터에서 만든다 ── */
   /* ── 지역 사전 ──
-     파이썬 region_index 가 만든 사전을 그대로 받아 쓴다.
-     (공유본이 따로 만들면 '창원시'처럼 데이터에 없는 상위 지명을 못 알아본다) */
+     파이썬 region_index 가 만든 표기 사전을 통째로 받아 쓴다.
+     ('경기도 광주', '경기광주', '분당', '판교' 같은 표기를 모두 알아본다) */
   var REG = R.regions || null;
   var NICKMAP = (REG && REG.nick) || {};
-  // 사람들이 부르는 시도 이름 ('광주' -> 데이터의 '전남광주')
-  var SIDO_ALIAS = (REG && REG.sidoAlias) || {};
+  var FORMS = (REG && REG.forms) || null;
+  var SIZE = (REG && REG.size) || {};
+  var SIDO_DISPLAY = (REG && REG.display) || {};
+  var SIDO_LIST = (REG && REG.sido) || {};
 
-  var DISTRICTS = (function () {
-    if (REG && REG.sggu) return { map: REG.sggu, sido: REG.sido };
-    // 사전을 못 받은 경우의 대비책: 데이터에서 직접 만든다
-    var set = {}, sd = {};
-    HOSP.forEach(function (h) {
-      set[h.g] = h.g;
-      (sd[h.sd] = sd[h.sd] || []).push(h.g);
-    });
-    return { map: set, sido: sd };
-  })();
+  var METRO = ["서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종"];
 
-  // 파이썬 resolve() 와 같은 순서로 지역을 찾는다.
-  function resolveRegion(flat) {
-    // 별칭: 파이썬에서 받은 것 + 이 화면이 따로 가진 동 단위 이름
-    var nicks = {};
-    Object.keys(NICKMAP).forEach(function (k) { nicks[k] = NICKMAP[k]; });
-    Object.keys(NICK).forEach(function (k) { nicks[k] = NICK[k]; });
-
-    var nk = Object.keys(nicks).sort(function (a, b) { return b.length - a.length; });
-    for (var n = 0; n < nk.length; n++) {
-      if (flat.indexOf(nk[n]) >= 0 && DISTRICTS.map[nicks[nk[n]]]) {
-        return { region: DISTRICTS.map[nicks[nk[n]]], ambiguous: false };
+  function metroBody(sggu) {
+    for (var i = 0; i < METRO.length; i++) {
+      var pre = METRO[i];
+      if (sggu.indexOf(pre) === 0 && sggu.length > pre.length + 1) {
+        return sggu.slice(pre.length);
       }
     }
-
-    var sidos = Object.keys(DISTRICTS.sido || {});
-    var names = Object.keys(DISTRICTS.map)
-      .sort(function (a, b) { return b.length - a.length; });
-
-    for (var m = 0; m < names.length; m++) {
-      var name = names[m];
-      if (name.length < 2 || flat.indexOf(name) < 0) continue;
-      var full = DISTRICTS.map[name];
-
-      // '북구'처럼 여러 시도에 있는 이름인지 본다
-      if (name !== full) {
-        var owners = sidos.filter(function (sd) {
-          return (DISTRICTS.sido[sd] || []).some(function (g) {
-            return g === name || g.slice(-name.length) === name;
-          });
-        });
-        if (owners.length > 1) {
-          // 문장에 시도명이 같이 있으면 그걸로 좁힌다
-          for (var o = 0; o < owners.length; o++) {
-            var sd2 = owners[o];
-            var shortSd = sd2.replace("특별시", "").replace("광역시", "");
-            var alias2 = Object.keys(SIDO_ALIAS).filter(function (k) {
-              return SIDO_ALIAS[k] === sd2 && flat.indexOf(k) >= 0;
-            });
-            if (flat.indexOf(sd2) >= 0 || flat.indexOf(shortSd) >= 0
-                || alias2.length) {
-              var g2 = (DISTRICTS.sido[sd2] || []).filter(function (g) {
-                return g.slice(-name.length) === name;
-              })[0];
-              if (g2) return { region: g2, ambiguous: false };
-            }
-          }
-          return { region: null, ambiguous: true };
-        }
-      }
-      return { region: full, ambiguous: false };
-    }
-
-    // 시도명만 말한 경우
-    var bySd = sidos.slice().sort(function (a, b) { return b.length - a.length; });
-    for (var i2 = 0; i2 < bySd.length; i2++) {
-      var s2 = bySd[i2];
-      var sh = s2.replace("특별자치도", "").replace("특별자치시", "")
-                 .replace("특별시", "").replace("광역시", "")
-                 .replace("통합특별시", "").replace("도", "");
-      if (flat.indexOf(s2) >= 0 || (sh.length >= 2 && flat.indexOf(sh) >= 0)) {
-        return { region: s2, ambiguous: false };
-      }
-    }
-
-    // 별칭으로 부른 시도 ('광주' -> '전남광주')
-    var aliases = Object.keys(SIDO_ALIAS)
-      .sort(function (a, b) { return b.length - a.length; });
-    for (var i3 = 0; i3 < aliases.length; i3++) {
-      var a3 = aliases[i3];
-      if (flat.indexOf(a3) >= 0 && sidos.indexOf(SIDO_ALIAS[a3]) >= 0) {
-        return { region: SIDO_ALIAS[a3], ambiguous: false };
-      }
-    }
-    return { region: null, ambiguous: false };
+    return sggu;
   }
 
+  function displayName(sggu) {
+    if (!sggu) return "";
+    if (sggu.indexOf("__CITY__") === 0) return sggu.slice(8) + "시";
+    var body = metroBody(sggu);
+    if (body !== sggu) return sggu.slice(0, sggu.length - body.length) + " " + body;
+    var m = /^(.{2,}?)(.+구)$/.exec(sggu);
+    if (m) return m[1] + "시 " + m[2];
+    return sggu;
+  }
+
+  // 예전 코드가 쓰던 모양을 유지한다
+  var DISTRICTS = { map: {}, sido: SIDO_LIST };
+  if (FORMS) {
+    Object.keys(FORMS).forEach(function (k) {
+      var first = FORMS[k][0];
+      if (first && first[1] && first[1].indexOf("__CITY__") !== 0) {
+        DISTRICTS.map[k] = first[1];
+      }
+    });
+  }
+
+  // 파이썬 resolve_detail 과 같은 규칙
+  function resolveRegion(flat) {
+    var empty = { region: null, ambiguous: false, matched: "", candidates: [] };
+    if (!FORMS || !flat) return empty;
+
+    var nicks = Object.keys(NICKMAP);
+    for (var n = 0; n < nicks.length; n++) {
+      if (flat.indexOf(nicks[n]) >= 0 && DISTRICTS.map[NICKMAP[nicks[n]]]) {
+        return { region: NICKMAP[nicks[n]], ambiguous: false,
+                 matched: nicks[n], candidates: [] };
+      }
+    }
+
+    var hitsList = [];
+    Object.keys(FORMS).forEach(function (name) {
+      if (flat.indexOf(name) >= 0) hitsList.push(name);
+    });
+    if (!hitsList.length) return empty;
+
+    // 한 곳만 가리키는 표기 우선 → 구까지 특정하는 것 우선 → 긴 것 우선
+    hitsList.sort(function (a, b) {
+      var ha = FORMS[a], hb = FORMS[b];
+      var oa = ha.length === 1 ? 1 : 0, ob = hb.length === 1 ? 1 : 0;
+      if (oa !== ob) return ob - oa;
+      var ga = (ha.length === 1 && ha[0][1] && ha[0][1].indexOf("__CITY__") !== 0) ? 1 : 0;
+      var gb = (hb.length === 1 && hb[0][1] && hb[0][1].indexOf("__CITY__") !== 0) ? 1 : 0;
+      if (ga !== gb) return gb - ga;
+      return b.length - a.length;
+    });
+
+    var name = hitsList[0], hits = FORMS[name];
+
+    if (hits.length === 1) {
+      var sg = hits[0][1] || null;
+      if (sg && sg.indexOf("__CITY__") === 0) sg = sg.slice(8);
+      return { region: sg || hits[0][0], ambiguous: false,
+               matched: name, candidates: [] };
+    }
+
+    // 시도와 그 시도 안의 시군구가 겹치면(제주/제주시) 시도 전체로 본다
+    var sidoOnly = hits.filter(function (h) { return !h[1]; });
+    if (sidoOnly.length === 1) {
+      var only = sidoOnly[0][0];
+      var allSame = hits.every(function (h) { return h[0] === only; });
+      if (allSame) {
+        return { region: only, ambiguous: false, matched: name, candidates: [] };
+      }
+    }
+
+    hits = hits.slice().sort(function (a, b) {
+      return (SIZE[b[0] + "|" + b[1]] || 0) - (SIZE[a[0] + "|" + a[1]] || 0);
+    });
+
+    var cands = hits.map(function (h) {
+      var sd = h[0], sg2 = h[1] || null;
+      var sdName = SIDO_DISPLAY[sd] || sd;
+      var label;
+      if (sg2) {
+        var nm = displayName(sg2);
+        label = nm.indexOf(" ") >= 0 ? nm : (sdName + " " + nm);
+      } else {
+        label = sdName;
+      }
+      var pick = sg2 || "";
+      if (pick.indexOf("__CITY__") === 0) pick = pick.slice(8);
+      return { label: label, value: "__REGION__" + sd + "|" + pick };
+    });
+    return { region: null, ambiguous: true, matched: name, candidates: cands };
+  }
 
   var NICK = {
     "상무": "광주서구", "치평": "광주서구", "화정": "광주서구",
@@ -181,6 +198,8 @@
     var got = resolveRegion(flat);
     c.region = got.region;
     c.ambiguous = got.ambiguous;
+    c.candidates = got.candidates || [];
+    c.matched = got.matched || "";
 
     var has = function (list) {
       return list.some(function (x) { return t.indexOf(x) >= 0; });
@@ -524,9 +543,35 @@
       return;
     }
 
-    bubble(text, "me");
+    // 여러 곳 중에서 고른 경우: 다시 해석하지 않고 그 지역으로 확정한다
+    var pickedRegion = null;
+    if (text.indexOf("__REGION__") === 0) {
+      var body = text.slice("__REGION__".length);
+      var bar = body.indexOf("|");
+      var sd = bar >= 0 ? body.slice(0, bar) : body;
+      var sg = bar >= 0 ? body.slice(bar + 1) : "";
+      pickedRegion = sg || sd;
+      text = "";
+    } else {
+      bubble(text, "me");
+    }
+
     var merged = (pending ? pending + " " : "") + text;
     var c = extract(merged);
+    if (pickedRegion) {
+      c.region = pickedRegion;
+      c.ambiguous = false;
+      c.candidates = [];
+    }
+
+    // 같은 이름이 여러 곳이면 마음대로 고르지 않고 후보를 보여준다
+    if (c.ambiguous) {
+      pending = merged;
+      bubble("‘" + (c.matched || "그 지역") +
+             "’ 이라는 곳이 여러 곳이에요. 어디를 찾으세요?", "bot");
+      quick(c.candidates.slice(0, 6));
+      return;
+    }
 
     if (isDiagnosisAsk(text) && c.dept) {
       pending = merged;
@@ -737,7 +782,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202609080950")
+    pharmLoading = fetch("pharmacies.json?v=202609081051")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
