@@ -26,8 +26,13 @@
     send: document.getElementById("send"),
     assistant: document.getElementById("assistant"),
     siteForm: document.getElementById("site-search"),
-    siteInput: document.getElementById("site-search-input")
+    siteInput: document.getElementById("site-search-input"),
+    nearby: document.getElementById("nearby-grid"),
+    areaPick: document.getElementById("area-pick"),
+    areaName: document.getElementById("area-name")
   };
+
+  var PHARM = window.__PHARM_DATA__ || [];
 
   var pending = "";
   var lastCards = {};
@@ -554,6 +559,258 @@
     document.body.classList.remove("panel-open");
     if (el.assistant) el.assistant.hidden = false;
   }
+
+  /* ── 첫 화면 '내 주변 병원' (실제 데이터) ── */
+  var area = "서울 강남구";
+
+  function openPanel() { if (el.panel.hidden) el.fab.click(); }
+
+  function nearbyOf(regionText) {
+    var flat = regionText.replace(/\s/g, "");
+    var got = resolveRegion(flat);
+    var rows = got.region ? filterRegion(HOSP, got.region) : [];
+    rows = rows.filter(function (h) { return NON_OUTPATIENT.indexOf(h.c) < 0; });
+    if (!rows.length) return [];
+    var lat = rows.map(function (h) { return h.y; }).sort()[Math.floor(rows.length / 2)];
+    var lon = rows.map(function (h) { return h.x; }).sort()[Math.floor(rows.length / 2)];
+    rows.forEach(function (h) {
+      h._km = Math.round(dist(lat, lon, h.y, h.x) * 100) / 100;
+    });
+    // 서버 쪽 search() 와 같은 기준: 한방·치과 계열은 뒤로 보낸다
+    // (진료과를 고르지 않고 '내 주변'만 본 사람에게는 일반 의원이 먼저 맞다)
+    rows.forEach(function (h) { h._fit = clinicFit(h.c, "일반"); });
+    rows.sort(function (a, b) {
+      return (a._fit - b._fit) || (a._km - b._km);
+    });
+    return rows.slice(0, 6);
+  }
+
+  function drawNearby(rows) {
+    if (!el.nearby) return;
+    if (!rows.length) {
+      el.nearby.innerHTML =
+        '<p class="grid-msg">이 지역에서 병원을 찾지 못했어요. 지역을 바꿔보세요.</p>';
+      return;
+    }
+    el.nearby.innerHTML = "";
+    rows.forEach(function (h) {
+      var t = todayHours(h);
+      var badge = t.open === true ? '<span class="badge open">진료중</span>'
+        : t.open === false ? '<span class="badge closed">오늘 휴진</span>'
+        : '<span class="badge unknown">시간 미확인</span>';
+      var tags = [];
+      if (h.p > 0) tags.push("주차 " + h.p + "대");
+      if (h.s > 0) tags.push("전문의 " + h.s + "명");
+      if (h.gr) tags.push("평가 " + h.gr.toFixed(1) + "등급");
+
+      var art = node(
+        '<article class="hosp">' +
+          '<div class="hosp-top"><span class="hosp-name"></span>' + badge + '</div>' +
+          '<p class="hosp-dept"></p>' +
+          '<div class="hosp-meta">' +
+            (t.text.indexOf("미확인") >= 0 ? "" :
+              '<span>' + esc(t.text) + '</span><span class="dot">·</span>') +
+            '<span>' + h._km + 'km</span></div>' +
+          '<div class="hosp-tags">' +
+            tags.map(function (x) { return '<span class="tag">' + esc(x) + '</span>'; }).join("") +
+          '</div>' +
+          '<div class="hosp-cta">' +
+            '<button type="button" class="ghost">병원 보기</button>' +
+            '<button type="button" class="fill">예약하기</button>' +
+          '</div>' +
+        '</article>');
+
+      art.querySelector(".hosp-name").textContent = h.n;
+      art.querySelector(".hosp-dept").textContent =
+        h.c + (h.a ? " · " + h.a.split(" ").slice(0, 3).join(" ") : "");
+      // 챗봇 안에서 이미 쓰고 있는 카드 그리기를 그대로 재사용한다
+      art.querySelector(".ghost").addEventListener("click", function () {
+        openPanel();
+        setTimeout(function () {
+          bubble(h.n, "me");
+          card(h, (h.d && h.d[0]) || null);
+        }, 300);
+      });
+      art.querySelector(".fill").addEventListener("click", function () {
+        openPanel();
+        setTimeout(function () {
+          bubble(h.n + " 예약", "me");
+          confirmBox(h, (h.d && h.d[0]) || null, todayHours(h));
+        }, 300);
+      });
+      el.nearby.appendChild(art);
+    });
+  }
+
+  function loadNearby(region) {
+    area = region;
+    if (el.areaName) el.areaName.textContent = region;
+    drawNearby(nearbyOf(region));
+  }
+
+  /* ── 약국 찾기 ──
+     약국 자료는 4.5MB 라 첫 화면에서 같이 받지 않고, 누른 사람만 받는다. */
+  var pharmLoading = null;
+
+  function ensurePharm() {
+    if (PHARM.length) return Promise.resolve(PHARM);
+    if (pharmLoading) return pharmLoading;
+    pharmLoading = fetch("pharmacies.json")
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (rows) {
+        PHARM = rows || [];
+        window.__PHARM_DATA__ = PHARM;
+        return PHARM;
+      });
+    return pharmLoading;
+  }
+
+  function pharmacyList(regionText) {
+    openPanel();
+    setTimeout(function () {
+      bubble("약국 찾기", "me");
+      var wait = bubbleNode("약국 정보를 불러오는 중이에요…", "bot");
+      ensurePharm().then(function () {
+        if (wait) wait.remove();
+        drawPharmacies(regionText);
+      }).catch(function () {
+        if (wait) wait.remove();
+        bubble("약국 정보를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.", "bot");
+      });
+    }, 300);
+  }
+
+  function bubbleNode(text, who) {
+    var r = node('<div class="row ' + who + '"><div class="bubble"></div></div>');
+    r.querySelector(".bubble").textContent = text;
+    el.log.appendChild(r); scroll();
+    return r;
+  }
+
+  function drawPharmacies(regionText) {
+    {
+      var got = resolveRegion(regionText.replace(/\s/g, ""));
+      var name = got.region;
+      var hit = PHARM.filter(function (x) { return x.g === name; });
+      if (!hit.length) hit = PHARM.filter(function (x) { return x.sd === name; });
+      if (!hit.length && name) {
+        var base = name.replace(/[시군구]$/, "");
+        if (base.length >= 2) {
+          hit = PHARM.filter(function (x) { return x.g.indexOf(base) === 0; });
+        }
+      }
+      if (!hit.length) {
+        bubble("‘" + regionText + "’ 에서 약국을 찾지 못했어요.", "bot");
+        return;
+      }
+      var lat = hit.map(function (x) { return x.y; }).sort()[Math.floor(hit.length / 2)];
+      var lon = hit.map(function (x) { return x.x; }).sort()[Math.floor(hit.length / 2)];
+      hit.forEach(function (x) {
+        x._km = Math.round(dist(lat, lon, x.y, x.x) * 100) / 100;
+      });
+      hit.sort(function (a, b) { return a._km - b._km; });
+
+      var top = hit.slice(0, 5);
+      bubble(regionText + " 약국 " + top.length + "곳이에요. (전체 "
+             + hit.length + "곳 중 가까운 순)", "bot");
+      top.forEach(function (x) {
+        var c2 = node(
+          '<div class="hcard">' +
+            '<div class="top"><span class="name"></span>' +
+            '<span class="kind">약국</span></div>' +
+            '<div class="line"><span>' + x._km + 'km</span></div>' +
+            '<div class="addr"></div>' +
+            '<div class="cta"><a class="ghost" href="tel:' + esc(x.t) +
+            '">전화하기</a></div>' +
+          '</div>');
+        c2.querySelector(".name").textContent = x.n;
+        c2.querySelector(".addr").textContent = x.a;
+        el.log.appendChild(c2);
+      });
+      el.log.appendChild(node(
+        '<div class="notice">건강보험심사평가원 약국정보서비스 자료입니다. ' +
+        '영업시간은 공개되어 있지 않아 표시하지 않습니다.</div>'));
+      scroll();
+    }
+  }
+
+  /* ── 상단 메뉴 · 퀵메뉴 ── */
+  function goto2(what) {
+    if (what === "hospital") {
+      openPanel();
+      setTimeout(function () { ask("__department__"); }, 300);
+      return;
+    }
+    if (what === "booking") {
+      openPanel();
+      setTimeout(function () {
+        bubble("접수·예약", "me");
+        bubble("어느 병원에 접수·예약할지 먼저 찾아드릴게요. 진료과를 골라주세요.", "bot");
+        ask("__department__");
+      }, 300);
+      return;
+    }
+    if (what === "pharmacy") { pharmacyList(area); return; }
+    if (what === "telemed") {
+      openPanel();
+      setTimeout(function () {
+        bubble("비대면진료", "me");
+        bubble("비대면진료는 굿닥이 이미 제공하는 기능이라 이번 프로젝트에서는 "
+               + "다시 만들지 않았어요.", "bot");
+        bubble("저희가 맡은 부분은 ‘어느 병원에 가야 할지 고르는 일’이에요. "
+               + "증상이나 지역을 말씀해 주시면 찾아드릴게요.", "bot");
+        quick([{ label: "증상으로 찾기", value: "__symptom__" },
+               { label: "진료과로 찾기", value: "__department__" }]);
+      }, 300);
+      return;
+    }
+    if (what === "app") {
+      openPanel();
+      setTimeout(function () {
+        bubble("앱 다운로드", "me");
+        bubble("이 화면은 학교 프로젝트 시연용이라 받을 앱이 없어요. "
+               + "실제 굿닥 앱은 앱스토어에서 받을 수 있습니다.", "bot");
+      }, 300);
+    }
+  }
+
+  document.querySelectorAll("[data-go]").forEach(function (b) {
+    b.addEventListener("click", function (e) {
+      e.preventDefault();
+      goto2(b.getAttribute("data-go"));
+    });
+  });
+
+  if (el.areaPick) {
+    el.areaPick.addEventListener("click", function () {
+      openPanel();
+      setTimeout(function () {
+        bubble("지역 바꾸기", "me");
+        bubble("어느 지역에서 찾을까요?", "bot");
+        var box = node('<div class="quick"></div>');
+        ["서울 강남구", "부산 해운대구", "광주 북구", "대구 중구",
+         "인천 남동구", "대전 서구"].forEach(function (a) {
+          var b2 = document.createElement("button");
+          b2.type = "button";
+          b2.textContent = a;
+          b2.addEventListener("click", function () {
+            box.remove();
+            bubble(a, "me");
+            bubble(a + " 병원으로 바꿨어요. 첫 화면에서 확인해 보세요.", "bot");
+            loadNearby(a);
+          });
+          box.appendChild(b2);
+        });
+        el.log.appendChild(box);
+        scroll();
+      }, 300);
+    });
+  }
+
+  loadNearby(area);
 
   el.fab.addEventListener("click", open);
   el.close.addEventListener("click", close);
