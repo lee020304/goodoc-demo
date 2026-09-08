@@ -478,8 +478,34 @@
   }
 
   /* ── 대화 ── */
+  // 지역을 되물을 때 보여줄 보기. (예전에는 전국 시군구를 전부 뿌려 너무 길었다)
+  var REGION_CHOICES = ["서울 강남구", "부산 해운대구", "광주 북구",
+                        "대구 중구", "인천 남동구", "대전 서구"];
+
   function ask(text) {
     if (!text) return;
+
+    // 빠른 선택 버튼 값. 서버 쪽 dialog.reply 와 같은 방식으로 처리한다.
+    if (text === "__symptom__") {
+      bubble("어떤 증상이신가요?", "bot");
+      quick((R.commonSymptoms || []).map(function (x) {
+        return { label: x, value: x };
+      }));
+      return;
+    }
+    if (text === "__department__") {
+      bubble("어느 진료과를 찾으세요?", "bot");
+      quick((R.commonDepts || []).map(function (x) {
+        return { label: x, value: x };
+      }));
+      return;
+    }
+    if (text === "__nearby__") {
+      bubble("어느 지역에서 찾을까요? 시·군·구까지 알려주시면 정확해요.", "bot");
+      quick(REGION_CHOICES.map(function (x) { return { label: x, value: x }; }));
+      return;
+    }
+
     bubble(text, "me");
     var merged = (pending ? pending + " " : "") + text;
     var c = extract(merged);
@@ -495,8 +521,8 @@
     if (!c.region) {
       pending = merged;
       bubble((c.dept ? c.dept + " 진료를 찾을게요. " : "") + "어느 지역인가요?", "bot");
-      quick(DISTRICTS.full.map(function (d) {
-        return { label: d.replace(/^광주/, "광주 "), value: d };
+      quick(REGION_CHOICES.map(function (d) {
+        return { label: d, value: d };
       }));
       return;
     }
@@ -504,7 +530,9 @@
                      || c.openUntil || c.parking)) {
       pending = merged;
       bubble("어디가 불편하신지, 또는 진료과를 알려주세요.", "bot");
-      quick(R.commonSymptoms);
+      quick((R.commonSymptoms || []).map(function (x) {
+        return { label: x, value: x };
+      }));
       return;
     }
 
@@ -655,7 +683,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202609080927")
+    pharmLoading = fetch("pharmacies.json?v=202609080930")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
