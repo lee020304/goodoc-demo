@@ -578,7 +578,7 @@
       bubble("증상을 말씀해주시면 어떤 진료과를 가야 하는지, "
              + "가까운 병원은 어디인지 같이 찾아드릴게요.", "bot");
       quick(["감기 걸린 것 같아요", "지금 문 연 병원",
-             "주말에도 하는 소아과", "광주 남구 이비인후과"]);
+             "주말에도 하는 소아과", "서울 강남구 피부과"]);
     }
     setTimeout(function () { el.input.focus(); }, 60);
   }
@@ -683,7 +683,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202609080930")
+    pharmLoading = fetch("pharmacies.json?v=202609080933")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
