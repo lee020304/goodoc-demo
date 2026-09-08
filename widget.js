@@ -45,6 +45,8 @@
      (공유본이 따로 만들면 '창원시'처럼 데이터에 없는 상위 지명을 못 알아본다) */
   var REG = R.regions || null;
   var NICKMAP = (REG && REG.nick) || {};
+  // 사람들이 부르는 시도 이름 ('광주' -> 데이터의 '전남광주')
+  var SIDO_ALIAS = (REG && REG.sidoAlias) || {};
 
   var DISTRICTS = (function () {
     if (REG && REG.sggu) return { map: REG.sggu, sido: REG.sido };
@@ -92,7 +94,11 @@
           for (var o = 0; o < owners.length; o++) {
             var sd2 = owners[o];
             var shortSd = sd2.replace("특별시", "").replace("광역시", "");
-            if (flat.indexOf(sd2) >= 0 || flat.indexOf(shortSd) >= 0) {
+            var alias2 = Object.keys(SIDO_ALIAS).filter(function (k) {
+              return SIDO_ALIAS[k] === sd2 && flat.indexOf(k) >= 0;
+            });
+            if (flat.indexOf(sd2) >= 0 || flat.indexOf(shortSd) >= 0
+                || alias2.length) {
               var g2 = (DISTRICTS.sido[sd2] || []).filter(function (g) {
                 return g.slice(-name.length) === name;
               })[0];
@@ -114,6 +120,16 @@
                  .replace("통합특별시", "").replace("도", "");
       if (flat.indexOf(s2) >= 0 || (sh.length >= 2 && flat.indexOf(sh) >= 0)) {
         return { region: s2, ambiguous: false };
+      }
+    }
+
+    // 별칭으로 부른 시도 ('광주' -> '전남광주')
+    var aliases = Object.keys(SIDO_ALIAS)
+      .sort(function (a, b) { return b.length - a.length; });
+    for (var i3 = 0; i3 < aliases.length; i3++) {
+      var a3 = aliases[i3];
+      if (flat.indexOf(a3) >= 0 && sidos.indexOf(SIDO_ALIAS[a3]) >= 0) {
+        return { region: SIDO_ALIAS[a3], ambiguous: false };
       }
     }
     return { region: null, ambiguous: false };
@@ -721,7 +737,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202609080948")
+    pharmLoading = fetch("pharmacies.json?v=202609080950")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
