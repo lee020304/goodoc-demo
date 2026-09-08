@@ -782,7 +782,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202609081051")
+    pharmLoading = fetch("pharmacies.json?v=202609081112")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
@@ -891,6 +891,17 @@
                + "증상이나 지역을 말씀해 주시면 찾아드릴게요.", "bot");
         quick([{ label: "증상으로 찾기", value: "__symptom__" },
                { label: "진료과로 찾기", value: "__department__" }]);
+      }, 300);
+      return;
+    }
+    if (what === "login") {
+      openPanel();
+      setTimeout(function () {
+        bubble("로그인", "me");
+        bubble("이 화면은 서버 없이 브라우저만으로 도는 시연본이라 "
+               + "로그인은 동작하지 않아요.", "bot");
+        bubble("로그인·회원가입·예약 내역 저장은 서버가 있는 화면에서 됩니다. "
+               + "발표 때는 그 화면으로 시연할 예정이에요.", "bot");
       }, 300);
       return;
     }
