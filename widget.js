@@ -29,7 +29,9 @@
     siteInput: document.getElementById("site-search-input"),
     nearby: document.getElementById("nearby-grid"),
     areaPick: document.getElementById("area-pick"),
-    areaName: document.getElementById("area-name")
+    areaName: document.getElementById("area-name"),
+    areaHere: document.getElementById("area-here"),
+    distFrom: document.getElementById("dist-from")
   };
 
   var PHARM = window.__PHARM_DATA__ || [];
@@ -565,6 +567,8 @@
       el.log.appendChild(node('<div class="notice">' +
         esc(notices.join(" ")) + "</div>"));
     }
+    el.log.appendChild(node('<div class="from-note">거리는 ' +
+      esc(c.region) + " 기준이에요.</div>"));
     out.rows.forEach(function (h) { card(h, c.dept); });
   }
 
@@ -593,14 +597,21 @@
 
   function openPanel() { if (el.panel.hidden) el.fab.click(); }
 
+  var myPos = null;   // 사용자가 위치 사용을 허락하면 채워진다
+
   function nearbyOf(regionText) {
     var flat = regionText.replace(/\s/g, "");
     var got = resolveRegion(flat);
     var rows = got.region ? filterRegion(HOSP, got.region) : [];
     rows = rows.filter(function (h) { return NON_OUTPATIENT.indexOf(h.c) < 0; });
     if (!rows.length) return [];
-    var lat = rows.map(function (h) { return h.y; }).sort()[Math.floor(rows.length / 2)];
-    var lon = rows.map(function (h) { return h.x; }).sort()[Math.floor(rows.length / 2)];
+    var lat, lon;
+    if (myPos) {
+      lat = myPos.lat; lon = myPos.lon;
+    } else {
+      lat = rows.map(function (h) { return h.y; }).sort()[Math.floor(rows.length / 2)];
+      lon = rows.map(function (h) { return h.x; }).sort()[Math.floor(rows.length / 2)];
+    }
     rows.forEach(function (h) {
       h._km = Math.round(dist(lat, lon, h.y, h.x) * 100) / 100;
     });
@@ -673,8 +684,35 @@
   function loadNearby(region) {
     area = region;
     if (el.areaName) el.areaName.textContent = region;
+    if (el.distFrom) {
+      el.distFrom.textContent = myPos ? "현재 위치" : region;
+    }
     drawNearby(nearbyOf(region));
   }
+
+  /* ── 내 위치로 거리 계산 (버튼을 눌렀을 때만 물어본다) ── */
+  function useMyLocation() {
+    if (!navigator.geolocation) return;
+    if (el.areaHere) {
+      el.areaHere.disabled = true;
+      el.areaHere.lastChild.textContent = " 위치 확인 중…";
+    }
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      myPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+      loadNearby(area);
+      restoreHere();
+    }, function () {
+      restoreHere();
+    }, { timeout: 8000, maximumAge: 60000 });
+  }
+
+  function restoreHere() {
+    if (!el.areaHere) return;
+    el.areaHere.disabled = false;
+    el.areaHere.lastChild.textContent = " 내 위치로";
+  }
+
+  if (el.areaHere) el.areaHere.addEventListener("click", useMyLocation);
 
   /* ── 약국 찾기 ──
      약국 자료는 4.5MB 라 첫 화면에서 같이 받지 않고, 누른 사람만 받는다. */
@@ -683,7 +721,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202609080933")
+    pharmLoading = fetch("pharmacies.json?v=202609080948")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
