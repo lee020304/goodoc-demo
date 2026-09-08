@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>수집 데이터 제출 · 굿닥 AI 병원 안내 챗봇</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap">
+<style>
+:root{
+  --bg:#f6f7f9; --card:#fff; --ink:#16181d; --sub:#5d6474; --mute:#808799;
+  --line:#e3e6ed; --line2:#f2f4f7;
+  --blue:#0073fa; --blue-bg:#f5faff; --blue-line:#cfe4ff;
+  --warn:#e8912a; --warn-bg:#fdf3e6;
+  --font:"Noto Sans KR",-apple-system,BlinkMacSystemFont,"Malgun Gothic",sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);
+  font-size:15px;line-height:1.7;letter-spacing:-.01em;
+  -webkit-font-smoothing:antialiased}
+.wrap{max-width:940px;margin:0 auto;padding:0 16px 64px}
+
+header{background:var(--blue);color:#fff;padding:34px 0 30px;margin-bottom:22px}
+header .wrap{padding-bottom:0}
+header .tag{display:inline-block;background:rgba(255,255,255,.2);
+  padding:4px 11px;border-radius:99px;font-size:12.5px;font-weight:600;
+  margin-bottom:12px}
+header h1{margin:0 0 8px;font-size:25px;font-weight:800;letter-spacing:-.03em}
+header p{margin:0;font-size:14px;opacity:.9}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;
+  padding:22px;margin-bottom:16px}
+.card h2{margin:0 0 4px;font-size:18px;font-weight:800;letter-spacing:-.02em}
+.card .lead{margin:0 0 16px;font-size:13.5px;color:var(--sub)}
+
+.note{background:var(--blue-bg);border:1px solid var(--blue-line);
+  border-radius:12px;padding:15px 17px;margin-bottom:16px;font-size:14px}
+.note b{color:var(--blue)}
+.warn{background:var(--warn-bg);border-color:#f4d9b0}
+.warn b{color:var(--warn)}
+
+.tw{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -4px}
+table{width:100%;border-collapse:collapse;font-size:13.5px;min-width:520px}
+th{background:var(--line2);text-align:left;padding:10px 12px;
+  border-bottom:1px solid var(--line);font-weight:700;white-space:nowrap;
+  color:var(--sub);font-size:12.5px}
+td{padding:11px 12px;border-bottom:1px solid var(--line2);vertical-align:top}
+tr:last-child td{border-bottom:0}
+td b{font-weight:700}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.hi{color:var(--warn);font-weight:700}
+
+.dl{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px}
+.dl a{display:inline-flex;align-items:center;gap:7px;
+  background:var(--blue);color:#fff;text-decoration:none;
+  padding:13px 20px;border-radius:10px;font-weight:700;font-size:14.5px}
+.dl a.ghost{background:#fff;color:var(--blue);border:1px solid var(--blue-line)}
+.dl a svg{width:17px;height:17px}
+
+.files{margin:0;padding:0;list-style:none}
+.files li{display:flex;justify-content:space-between;gap:12px;
+  padding:11px 0;border-bottom:1px solid var(--line2);font-size:14px}
+.files li:last-child{border-bottom:0}
+.files .n{font-weight:600}
+.files .d{color:var(--mute);font-size:12.5px}
+.files .s{color:var(--mute);white-space:nowrap;font-size:12.5px}
+
+ol.q{margin:0;padding-left:20px}
+ol.q li{margin-bottom:13px}
+ol.q b{display:block;margin-bottom:2px}
+ol.q span{color:var(--sub);font-size:13.5px}
+
+footer{margin-top:26px;padding-top:18px;border-top:1px solid var(--line);
+  font-size:12.5px;color:var(--mute);line-height:1.8}
+footer a{color:var(--blue)}
+
+@media(max-width:600px){
+  body{font-size:14.5px}
+  header{padding:26px 0 24px}
+  header h1{font-size:21px}
+  .card{padding:17px;border-radius:12px}
+  .dl a{flex:1;justify-content:center}
+}
+</style>
+</head>
+<body>
+<header><div class="wrap"><span class="tag">2026 K-Digital Training · 핵심프로젝트</span><h1>굿닥 AI 병원 안내 챗봇<br>수집 데이터 제출</h1><p>팀 독수리5형제 · 2026년 09월 08일</p></div></header>
+<div class="wrap">
+<div class="note"><b>선생님께</b><br>저희 팀이 사용하는 데이터가 기획과 맞는지 확인해 주십사 정리했습니다. 아래 <b>‘데이터의 한계’</b>와 <b>‘여쭙고 싶은 것’</b>을 특히 봐주시면 감사하겠습니다.</div>
+<div class="card"><h2>데이터 내려받기</h2><p class="lead">엑셀에서 바로 열립니다 (한글 깨짐 없음). 전체 49.5MB, 압축본 7.7MB</p>
+<div class="dl"><a href="goodoc-data.zip" download><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 11l5 5 5-5M4 20h16"/></svg>전체 내려받기 (7.7MB)</a>
+<a class="ghost" href="https://lee020304.github.io/goodoc-demo/plan/">기획서 보기</a>
+<a class="ghost" href="https://lee020304.github.io/goodoc-demo/">시연 화면 보기</a></div>
+<ul class="files">
+<li><span><span class="n">00_데이터_설명서.xlsx</span><br><span class="d">먼저 볼 안내서 (개요·기획연결·한계·질문)</span></span><span class="s">0.0MB</span></li>
+<li><span><span class="n">01_굿닥앱리뷰.xlsx</span><br><span class="d">Pain Point 근거가 된 원본 리뷰</span></span><span class="s">0.5MB</span></li>
+<li><span><span class="n">02_PainPoint분석.xlsx</span><br><span class="d">리뷰 분류 결과와 실제 예시</span></span><span class="s">0.1MB</span></li>
+<li><span><span class="n">03_전국병원정보_79819곳.csv</span><br><span class="d">심평원 병원정보서비스</span></span><span class="s">19.9MB</span></li>
+<li><span><span class="n">03_전국병원정보_샘플.xlsx</span><br><span class="d">심평원 병원정보서비스</span></span><span class="s">0.0MB</span></li>
+<li><span><span class="n">04_진료과목_436082행.csv</span><br><span class="d">기관별 진료과목</span></span><span class="s">21.8MB</span></li>
+<li><span><span class="n">05_진료시간주차_76934곳.csv</span><br><span class="d">진료시간·주차 (한계가 드러나는 자료)</span></span><span class="s">3.6MB</span></li>
+<li><span><span class="n">06_약국정보_25757곳.csv</span><br><span class="d">심평원 약국정보서비스</span></span><span class="s">3.4MB</span></li>
+</ul></div>
+<div class="card"><h2>제출 데이터 목록</h2><p class="lead">각 데이터를 기획의 어느 단계에 쓰는지 함께 적었습니다.</p>
+<div class="tw"><table><thead><tr><th>번호</th><th>데이터</th><th>규모</th><th>출처</th><th>기획 어느 단계에 쓰나</th><th>설명</th></tr></thead><tbody><tr><td>1</td><td>굿닥 앱 리뷰</td><td>4,311건</td><td>Google Play (google-play-scraper)</td><td>① 불만 찾기</td><td>‘무엇이 불편한가’의 근거. 부정 리뷰 837건 포함</td></tr><tr><td>2</td><td>Pain Point 분석 결과</td><td>5개 그룹</td><td>01 을 분석한 결과</td><td>① 불만 찾기</td><td>한 리뷰 = 한 그룹으로 배타 분류. 비율 합계 100%</td></tr><tr><td>3</td><td>전국 병원정보</td><td>79,819곳</td><td>심평원 병원정보서비스 Open API</td><td>② 검증 · ③ 설계 · ④ 시제품</td><td>병원명·주소·좌표·종별·의사 수. 거리 계산과 지역 검색의 뼈대</td></tr><tr><td>4</td><td>기관별 진료과목</td><td>77,107곳</td><td>심평원 전국 병의원 및 약국 현황(2026.6.)</td><td>③ 설계 · ④ 시제품</td><td>‘이비인후과 찾아줘’ 를 가능하게 하는 자료</td></tr><tr><td>5</td><td>진료시간·주차 상세</td><td>76,934곳</td><td>심평원 의료기관별상세정보서비스 Open API</td><td>③ 설계 · ④ 시제품</td><td>‘일요일에 하는 곳’ 조건용 (한계가 있음 — ‘데이터 한계’ 참고)</td></tr><tr><td>6</td><td>약국정보</td><td>25,757곳</td><td>심평원 약국정보서비스</td><td>④ 시제품</td><td>‘약국 찾기’ 기능용</td></tr></tbody></table></div>
+</div>
+<div class="card"><h2>기획과의 연결</h2><p class="lead">리뷰에서 찾은 불만마다 어떤 데이터로 푸는지 정리했습니다. 저희가 다루지 못하는 것은 그대로 적었습니다.</p>
+<div class="tw"><table><thead><tr><th>순위</th><th>Pain Point</th><th>리뷰에 나온 표현</th><th>우리 해결 방향</th><th>쓰는 데이터</th><th>공공데이터로 해결</th></tr></thead><tbody><tr><td>1위</td><td>찾기 어려움 / 검색 불편</td><td>‘조건별로 검색이 안 된다’, ‘거리순 정렬이 안 된다’</td><td>진료과·지역·거리로 거를 수 있게</td><td>03 병원정보 + 04 진료과목</td><td>가능</td></tr><tr><td>2위</td><td>예약·접수 문제</td><td>‘예약이 안 잡힌다’, ‘접수했는데 반영이 안 된다’</td><td>병원 연락처·예약 창구까지 안내</td><td>03 병원정보(전화번호)</td><td>부분 가능</td></tr><tr><td>3위</td><td>앱 오류·불안정</td><td>‘튕긴다’, ‘로그인이 안 된다’</td><td>우리 기획 범위 밖 (앱 품질 문제)</td><td>해당 없음</td><td>해당 없음</td></tr><tr><td>4위</td><td>정보 부정확</td><td>‘진료시간이 실제와 다르다’, ‘문 닫았는데 열었다고 나온다’</td><td>공공데이터를 쓰고, 없는 정보는 ‘미확인’으로 표시</td><td>05 진료시간·주차</td><td>부분 가능</td></tr><tr><td>5위</td><td>비대면진료 불만</td><td>‘연결이 안 된다’, ‘처방전이 안 온다’</td><td>우리 기획 범위 밖 (굿닥 기존 기능)</td><td>해당 없음</td><td>해당 없음</td></tr></tbody></table></div>
+</div>
+<div class="card"><h2>데이터의 한계</h2><p class="lead">가장 아픈 부분입니다. 숨기지 않고 적습니다.</p>
+<div class="note warn"><b>진료시간이 전국 병원의 9.1% 뿐입니다.</b><br>병원이 심평원에 등록할 의무가 없어 대부분 비어 있습니다. 저희 수집 실수가 아닌지 확인하려고 <b>빈 병원 130곳을 API로 다시 조회</b>했고, 원래 등록되어 있지 않다는 것을 확인했습니다.</div>
+<div class="tw"><table><thead><tr><th>항목</th><th>확보한 곳</th><th>비율</th><th>왜 없는가</th><th>어떻게 확인했나</th><th>우리 서비스에 미치는 영향</th></tr></thead><tbody><tr><td>진료시간</td><td class="num">7,297곳</td><td class="num">9.1%</td><td>병원이 심평원에 등록할 의무가 없어 대부분 비어 있음</td><td>빈 곳 130개를 API 로 다시 조회해 ‘수집 누락이 아니라 미등록’임을 확인</td><td>‘일요일에 하는 곳’ 검색이 전국 병원의 9.1%에만 적용됨</td></tr><tr><td>주차 정보</td><td class="num">4,882곳</td><td class="num">6.1%</td><td>위와 같음</td><td>위와 같음</td><td>‘주차되는 곳’ 검색이 6.1%에만 적용됨</td></tr><tr><td>이용자 별점</td><td class="num">0곳</td><td class="num">0%</td><td>공공데이터에 이용자 별점이라는 항목 자체가 없음</td><td>심평원 4개 서비스 전부 확인</td><td>정부 적정성 평가등급(1~5)으로 대체함</td></tr><tr><td>병원별 리뷰</td><td class="num">0건</td><td class="num">0%</td><td>앱 리뷰는 ‘앱’에 대한 평가라 병원과 연결되지 않음</td><td>리뷰 4,311건과 병원명 대조 결과 일치율 0.12%</td><td>리뷰는 기획 근거로만 쓰고, 병원 비교에는 쓰지 않음</td></tr></tbody></table></div>
+</div>
+<div class="card"><h2>여쭙고 싶은 것</h2><p class="lead">어떤 데이터를 더 확보하면 좋을지 조언 부탁드립니다.</p><ol class="q">
+<li><b>진료시간이 9.1%뿐인데, 이 상태로 ‘시간 조건 검색’을 핵심 기능으로 두는 것이 맞을까요?</b><span>현재는 정보가 없는 곳도 ‘미확인’으로 함께 보여주고 있습니다.</span></li>
+<li><b>진료시간·주차를 보완할 다른 공개 데이터가 있을까요?</b><span>지자체 데이터, 응급의료정보(E-Gen) 등을 검토해봐야 할지 궁금합니다.</span></li>
+<li><b>병원별 리뷰를 확보할 방법이 있을까요?</b><span>굿닥 사이트는 AI 크롤러를 robots.txt 로 차단하고 있어 수집 여부를 여쭙고 싶습니다.</span></li>
+<li><b>증상 → 진료과 매핑에 참고할 공신력 있는 자료가 있을까요?</b><span>정부 표준이 없어 대학병원 안내를 참고해 팀이 정리했습니다.</span></li>
+<li><b>비급여 진료비 데이터를 추가하면 도움이 될까요?</b><span>심평원에 비급여진료비정보 API 가 있는데 아직 쓰지 않았습니다.</span></li>
+</ol></div>
+<footer>데이터 출처 · 건강보험심사평가원 병원정보서비스 · 의료기관별상세정보서비스 · 병원평가정보서비스 · 전국 병의원 및 약국 현황(2026.6.) · Google Play 굿닥 앱 리뷰<br>공공누리 제1유형(출처표시) · 리뷰 수집 시 작성자 이름은 저장하지 않았습니다.<br>본 서비스는 병원 선택을 돕는 정보 제공 서비스이며 의학적 판단을 대신하지 않습니다.<br>스마트인재개발원 2026 K-Digital Training 지역산업연계 데이터 분석과정 1회차 · 팀 독수리5형제</footer></div>
+</body>
+</html>
