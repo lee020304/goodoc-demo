@@ -161,6 +161,51 @@
     "송정": "광주광산구", "신가": "광주광산구"
   };
 
+  /* ── 증상 -> 진료과 (파이썬 match_symptom 과 같은 규칙) ──
+     1) 응급·소아가 먼저
+     2) 애매한 표현('목','어지','가슴')은 함께 쓰인 말로 가리고, 못 가리면 되묻기
+     3) 그 밖에는 '가장 긴 표현'을 따른다
+        (길이로 보지 않으면 '목감기'가 '감기'에 걸려 내과로 간다) */
+  function matchSymptom(t) {
+    var S = R.symptoms || {};
+    var A = R.ambiguous || {};
+
+    var first = ["응급의학과", "소아청소년과"];
+    for (var i = 0; i < first.length; i++) {
+      var ws = S[first[i]] || [];
+      for (var j = 0; j < ws.length; j++) {
+        if (t.indexOf(ws[j]) >= 0) return { dept: first[i], ask: null };
+      }
+    }
+
+    var keys = Object.keys(A);
+    for (var k = 0; k < keys.length; k++) {
+      if (t.indexOf(keys[k]) < 0) continue;
+      var spec = A[keys[k]];
+      var decided = null;
+      Object.keys(spec.decide || {}).forEach(function (dept) {
+        if (decided) return;
+        var clues = spec.decide[dept];
+        for (var m = 0; m < clues.length; m++) {
+          if (t.indexOf(clues[m]) >= 0) { decided = dept; return; }
+        }
+      });
+      if (decided) return { dept: decided, ask: null };
+      return { dept: null, ask: spec };
+    }
+
+    var best = null, bestLen = 0;
+    Object.keys(S).forEach(function (dept) {
+      if (first.indexOf(dept) >= 0) return;
+      S[dept].forEach(function (w) {
+        if (t.indexOf(w) >= 0 && w.length > bestLen) {
+          best = dept; bestLen = w.length;
+        }
+      });
+    });
+    return { dept: best, ask: null };
+  }
+
   /* ── 조건 추출 (파이썬 규칙 이식) ── */
   function extract(text) {
     var t = String(text || "");
@@ -181,16 +226,11 @@
         if (t.indexOf(al[j]) >= 0) { c.dept = R.aliases[al[j]]; break; }
       }
     }
-    // 증상 -> 진료과 힌트 (사전 순서가 곧 우선순위)
+    // 증상 -> 진료과. 파이썬 match_symptom 과 같은 규칙을 쓴다.
     if (!c.dept) {
-      var keys = Object.keys(R.symptoms);
-      outer:
-      for (var k = 0; k < keys.length; k++) {
-        var words = R.symptoms[keys[k]];
-        for (var w = 0; w < words.length; w++) {
-          if (t.indexOf(words[w]) >= 0) { c.dept = keys[k]; break outer; }
-        }
-      }
+      var got2 = matchSymptom(t);
+      c.dept = got2.dept;
+      c.symptomChoice = got2.ask;
     }
 
     // 지역
@@ -558,10 +598,40 @@
 
     var merged = (pending ? pending + " " : "") + text;
     var c = extract(merged);
+
+    // 이번에 한 말만으로도 진료과나 지역이 정해지면 그쪽을 따른다.
+    // 그러지 않으면 되묻는 중에 다른 걸 물어봐도 이전 문장이 계속 따라붙어
+    // 같은 질문만 반복하게 된다.
+    if (text && merged !== text) {
+      var fresh = extract(text);
+      if (fresh.dept) {
+        c.dept = fresh.dept;
+        c.symptomChoice = null;
+      } else if (fresh.symptomChoice) {
+        c.symptomChoice = fresh.symptomChoice;
+        c.dept = null;
+      }
+      if (fresh.region) {
+        c.region = fresh.region;
+        c.ambiguous = fresh.ambiguous;
+        c.candidates = fresh.candidates;
+      }
+    }
+
     if (pickedRegion) {
       c.region = pickedRegion;
       c.ambiguous = false;
       c.candidates = [];
+    }
+
+    // 한 증상이 여러 진료과를 가리키면 되묻는다
+    if (c.symptomChoice && !c.dept) {
+      pending = merged;
+      bubble(c.symptomChoice.question, "bot");
+      quick((c.symptomChoice.options || []).map(function (o) {
+        return { label: o.label, value: o.dept };
+      }));
+      return;
     }
 
     // 같은 이름이 여러 곳이면 마음대로 고르지 않고 후보를 보여준다
@@ -782,7 +852,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202609081112")
+    pharmLoading = fetch("pharmacies.json?v=202609081217")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
