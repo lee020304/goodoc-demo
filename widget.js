@@ -624,6 +624,17 @@
       c.candidates = [];
     }
 
+    // 응급실 실시간 병상은 서버가 있어야 조회할 수 있다.
+    // (API 키를 공개 화면에 넣을 수 없다)
+    if (/응급실|응급 실|119|쓰러|의식이|피가 나/.test(merged)) {
+      pending = "";
+      bubble("응급실 실시간 병상은 이 화면에서는 볼 수 없어요. "
+             + "서버가 있는 화면에서 조회됩니다.", "bot");
+      bubble("위급한 상황이면 먼저 119에 연락하세요.", "bot");
+      quick([{ label: "가까운 병원 찾기", value: "__department__" }]);
+      return;
+    }
+
     // 한 증상이 여러 진료과를 가리키면 되묻는다
     if (c.symptomChoice && !c.dept) {
       pending = merged;
@@ -852,7 +863,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202609081217")
+    pharmLoading = fetch("pharmacies.json?v=202609091444")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
