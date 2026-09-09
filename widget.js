@@ -863,7 +863,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202609091444")
+    pharmLoading = fetch("pharmacies.json?v=202609091454")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
@@ -921,17 +921,42 @@
       });
       hit.sort(function (a, b) { return a._km - b._km; });
 
+      // 야간·심야·24시간 조건이 있으면 걸러 낸다
+      var 조건 = /24시|이십사시/.test(regionText) ? "al"
+        : /심야|새벽|자정/.test(regionText) ? "la"
+        : /야간|밤에|늦게|늦은/.test(regionText) ? "ni" : null;
+      var 안내 = null;
+      if (조건) {
+        var 골라낸 = hit.filter(function (x) { return x[조건]; });
+        if (골라낸.length) {
+          hit = 골라낸;
+        } else {
+          안내 = "조건에 맞는 약국을 찾지 못했어요. 아래는 가까운 순이며 "
+               + "방문 전 전화 확인을 권해요.";
+        }
+      }
+
       var top = hit.slice(0, 5);
+      if (안내) {
+        el.log.appendChild(node('<div class="notice">' + esc(안내) + "</div>"));
+      }
       bubble(regionText + " 약국 " + top.length + "곳이에요. (전체 "
              + hit.length + "곳 중 가까운 순)", "bot");
       top.forEach(function (x) {
+        var 배지 = x.al ? '<span class="ptag always">24시간</span>'
+          : x.la ? '<span class="ptag late">심야</span>'
+          : x.ni ? '<span class="ptag night">야간</span>' : "";
+        var 오늘 = (x.h || {})[WEEK[new Date().getDay() === 0 ? 6
+                                    : new Date().getDay() - 1]];
         var c2 = node(
           '<div class="hcard">' +
             '<div class="top"><span class="name"></span>' +
-            '<span class="kind">약국</span></div>' +
-            '<div class="line"><span>' + x._km + 'km</span></div>' +
+            '<span class="kind">약국</span>' + 배지 + "</div>" +
+            '<div class="line"><span>' +
+            (오늘 ? "오늘 " + esc(오늘) : "운영시간 미확인") +
+            '</span><span class="sep">·</span><span>' + x._km + 'km</span></div>' +
             '<div class="addr"></div>' +
-            '<div class="cta"><a class="ghost" href="tel:' + esc(x.t) +
+            '<div class="cta"><a class="fill" href="tel:' + esc(x.t) +
             '">전화하기</a></div>' +
           '</div>');
         c2.querySelector(".name").textContent = x.n;
