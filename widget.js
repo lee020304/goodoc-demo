@@ -624,6 +624,22 @@
       c.candidates = [];
     }
 
+    // 약국을 물어보면 병원이 아니라 약국을 찾는다
+    if (merged.indexOf("약국") >= 0) {
+      var got3 = resolveRegion(merged.replace(/\s/g, ""));
+      if (got3.region) {
+        pending = "";
+        pharmacyList(merged);   // 문장을 그대로 넘겨 야간·심야 조건을 살린다
+        return;
+      }
+      pending = merged;
+      bubble("어느 지역 약국을 찾으세요?", "bot");
+      quick(REGION_CHOICES.map(function (x) {
+        return { label: x, value: x + " 약국" };
+      }));
+      return;
+    }
+
     // 응급실 실시간 병상은 서버가 있어야 조회할 수 있다.
     // (API 키를 공개 화면에 넣을 수 없다)
     if (/응급실|응급 실|119|쓰러|의식이|피가 나/.test(merged)) {
@@ -863,7 +879,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202609091454")
+    pharmLoading = fetch("pharmacies.json?v=202609091506")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
@@ -940,7 +956,10 @@
       if (안내) {
         el.log.appendChild(node('<div class="notice">' + esc(안내) + "</div>"));
       }
-      bubble(regionText + " 약국 " + top.length + "곳이에요. (전체 "
+      // '광주 북구 야간 약국' 처럼 문장을 그대로 받으므로 '약국' 을 또 붙이지 않는다
+      var 머리 = regionText.indexOf("약국") >= 0
+        ? regionText : regionText + " 약국";
+      bubble(머리 + " " + top.length + "곳이에요. (전체 "
              + hit.length + "곳 중 가까운 순)", "bot");
       top.forEach(function (x) {
         var 배지 = x.al ? '<span class="ptag always">24시간</span>'
