@@ -470,7 +470,7 @@
      그래서 그려지는 것을 잠깐 모아 두었다가 한 번에 읽는다.
      ══════════════════════════════════════════════════════════ */
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  var voice = { rec: null, listening: false, speakOn: false, lastFinal: "" };
+  var voice = { 끊김타이머: null, rec: null, listening: false, speakOn: false, lastFinal: "" };
   var 읽을거리 = [], 읽기타이머 = null, 읽은카드수 = 0;
 
   function loadSpeakPref() {
@@ -737,12 +737,26 @@
     var rec = new SR();
     voice.rec = rec;
     rec.lang = "ko-KR";
-    rec.continuous = false;
+    /* 2026-09-15 확인 — "광주 남구"라고 말했는데 "광주"까지만 잡히는 일이 있었다.
+       continuous 가 false 면 잠깐 숨을 고르는 사이에도 인식이 끝나 버린다.
+       계속 듣게 두고, 말이 멎은 뒤 1.6초가 지나면 우리가 끝낸다. */
+    rec.continuous = true;
     rec.interimResults = true;
     rec.maxAlternatives = 1;
     voice.lastFinal = "";
 
+    function 말끊김대기() {
+      clearTimeout(voice.끊김타이머);
+      voice.끊김타이머 = setTimeout(function () {
+        if (voice.listening) stopListen();
+      }, 1600);
+    }
+
     rec.onstart = function () {
+      clearTimeout(voice.끊김타이머);
+      voice.끊김타이머 = setTimeout(function () {
+        if (voice.listening) stopListen();
+      }, 8000);
       voice.listening = true;
       if (el.mic) el.mic.classList.add("listening");
       voiceBar(true, "듣고 있어요. 말씀해 주세요");
@@ -758,6 +772,7 @@
       if (지금) {
         el.input.value = 지금;
         voiceBar(true, "“" + 지금 + "”");
+        말끊김대기();                      // 말이 이어지면 기다리는 시간을 다시 센다
       }
     };
     rec.onerror = function (e) {
@@ -783,13 +798,16 @@
       } else { voiceBar(false); }
     };
     rec.onend = function () {
+      clearTimeout(voice.끊김타이머);
       voice.listening = false;
       if (el.mic) el.mic.classList.remove("listening");
       var 말한것 = (voice.lastFinal || el.input.value || "").trim();
       if (말한것) {
         voiceBar(false);
         el.input.value = "";
-        setSpeak(true);                   // 말로 물었으면 목소리로 답한다
+        // 말로 물었다고 자동으로 읽어 주지는 않는다.
+        // 2026-09-15 휴대폰에서 들어 본 결과 기계 목소리가 깨져 들려
+        // 오히려 방해가 됐다. 원하는 사람만 위쪽 스피커 단추로 켠다.
         bubble(말한것, "me");
         ask(말한것);
       } else if (el.voiceBar && !el.voiceBar.hidden &&
@@ -1353,7 +1371,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202609151234")
+    pharmLoading = fetch("pharmacies.json?v=202609151245")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
