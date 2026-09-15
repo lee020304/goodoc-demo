@@ -512,6 +512,116 @@
     return (앞 ? 앞 + " " : "") + a + "부터 " + b + "까지";
   }
 
+  var 세는말 = ["", "한", "두", "세", "네", "다섯",
+                "여섯", "일곱", "여덟", "아홉", "열"];
+
+  /* "0.98km" → "약 980미터"
+     소수점을 그대로 읽으면 "영점구팔 킬로미터"로 들려 알아듣기 어렵다.
+     1킬로미터가 안 되면 미터로 바꾸고 10미터 단위로 반올림한다. */
+  function sayDistance(text) {
+    var m = /([\d.]+)\s*km/i.exec(String(text || ""));
+    if (!m) return "";
+    var km = parseFloat(m[1]);
+    if (isNaN(km)) return "";
+    if (km < 1) {
+      var meter = Math.round(km * 1000 / 10) * 10;
+      return "약 " + meter + "미터";
+    }
+    return "약 " + (Math.round(km * 10) / 10) + "킬로미터";
+  }
+
+  /* 작은 수는 한글로 읽는다. "3곳"을 "삼곳"으로 읽는 것을 막는다. */
+  var 세는말 = ["", "한", "두", "세", "네", "다섯",
+                "여섯", "일곱", "여덟", "아홉", "열"];
+  function sayCount(n) {
+    n = parseInt(n, 10);
+    if (isNaN(n)) return "";
+    return (n >= 1 && n <= 10) ? 세는말[n] : String(n);
+  }
+
+  /* 진료시간에서 '닫는 시각'만 꺼낸다.
+     지금 열려 있다면 언제 문을 닫는지가 가장 궁금한 정보다.
+     여는 시각까지 같이 읽으면 말이 길어져 귀에 남지 않는다. */
+  function sayCloseTime(text) {
+    var m = /(\d{1,2}:\d{2})\s*[~\-–]\s*(\d{1,2}:\d{2})/.exec(String(text || ""));
+    if (!m) return null;
+    var 시작 = 분으로(m[1]), 끝 = 분으로(m[2]);
+    var t = sayTime(m[2]);
+    if (!t) return null;
+    // 밤을 넘기는 곳은 '오늘'을 붙이면 "오늘 다음 날 오전 1시"가 되어 말이 꼬인다.
+    // 그래서 '오늘'을 앞에 붙일지 여부를 함께 돌려준다.
+    if (시작 !== null && 끝 !== null && 끝 <= 시작) {
+      return { 말: "다음 날 " + t + "까지", 오늘: false };
+    }
+    return { 말: t + "까지", 오늘: true };
+  }
+
+  /* "오늘 저녁 6시까지예요" / "다음 날 오전 1시까지예요" 로 만든다 */
+  function closeSentence(hours) {
+    var c = sayCloseTime(hours);
+    if (!c) return "";
+    return (c.오늘 ? " 오늘 " : " ") + c.말 + "예요.";
+  }
+
+  /* 화면용 문장을 귀로 듣기 쉬운 말로 바꾼다.
+     "3곳" 을 그냥 읽히면 "삼곳" 으로 들린다. "세 곳" 이라야 알아듣는다. */
+  function easyWords(text) {
+    function swap(all, n, unit) {
+      var v = parseInt(n, 10);
+      // 열 이하만 한글로 바꾼다. 큰 수는 숫자 그대로가 오히려 잘 들린다.
+      if (v >= 1 && v <= 10) return 세는말[v] + " " + unit;
+      return all;
+    }
+    return String(text || "")
+      .replace(/(\d+)\s*곳/g, function (a, n) { return swap(a, n, "곳"); })
+      .replace(/(\d+)\s*개/g, function (a, n) { return swap(a, n, "개"); });
+  }
+
+  /* 서버가 보내는 안내말과 회색 줄이 같은 내용을 두 번 말할 때가 있다.
+     화면에서는 두 줄로 나뉘어 있어 자연스럽지만, 소리로 이어 들으면
+     "한 곳이에요. 한 곳을 찾았어요." 처럼 되풀이로 들린다.
+     그래서 앞에 나온 문장과 많이 겹치는 문장은 빼고 읽는다. */
+  function dropRepeats(lines) {
+    var 나온것 = [], 결과 = [];
+    lines.forEach(function (chunk) {
+      String(chunk).split(/(?<=[.!?])\s+/).forEach(function (s) {
+        var t = s.trim();
+        if (!t) return;
+        var 핵심 = t.replace(/[^가-힣0-9]/g, "");
+        var 겹침 = 나온것.some(function (prev) {
+          if (!핵심 || !prev) return false;
+          var 짧은 = 핵심.length < prev.length ? 핵심 : prev;
+          var 긴 = 핵심.length < prev.length ? prev : 핵심;
+          if (긴.indexOf(짧은) >= 0) return true;      // 한쪽이 다른 쪽에 통째로 들어감
+          // 여섯 글자 이상 잇따라 똑같으면 같은 말을 되풀이하는 것으로 본다.
+          // ("심야 약국 한 곳이에요" 와 "심야 약국 한 곳을 찾았어요" 처럼)
+          for (var i = 0; i + 6 <= 짧은.length; i++) {
+            if (긴.indexOf(짧은.substr(i, 6)) >= 0) return true;
+          }
+          return false;
+        });
+        if (!겹침) {
+          나온것.push(핵심);
+          결과.push(t);
+        }
+      });
+    });
+    return 결과.join(" ");
+  }
+
+  /* 마지막 글자에 받침이 있는가.
+     한글 한 글자는 (초성·중성·종성)을 한 칸에 담고 있어서,
+     '가'(0xAC00)부터 세어 28로 나눈 나머지가 0이면 받침이 없다.
+     예) 광주 → 받침 없음 → '라는',  서울 → 받침 있음 → '이라는'
+     소리로 읽어 주면서 조사 오류가 귀에 걸려 고쳤다(2026-09-15). */
+  function 받침있나(word) {
+    var s = String(word || "").trim();
+    if (!s) return false;
+    var c = s.charCodeAt(s.length - 1);
+    if (c < 0xac00 || c > 0xd7a3) return true;   // 한글이 아니면 '이라는' 쪽
+    return (c - 0xac00) % 28 !== 0;
+  }
+
   function stopSpeaking() {
     if (!window.speechSynthesis) return;
     try { speechSynthesis.cancel(); } catch (e) {}
@@ -528,13 +638,15 @@
     읽기타이머 = setTimeout(읽기실행, 420);
   }
   function 읽기실행() {
-    var t = 읽을거리.join(" ");
+    // 같은 말이 두 번 나오면 하나만 남긴다
+    var t = dropRepeats(읽을거리);
     읽을거리 = []; 읽은카드수 = 0;
     if (!t || !voice.speakOn || !window.speechSynthesis) return;
     stopSpeaking();
     var u = new SpeechSynthesisUtterance(t);
     u.lang = "ko-KR";
-    u.rate = 0.95;                        // 어르신이 듣기 편하도록 조금 천천히
+    // 2026-09-15 휴대폰에서 들어 보니 0.95 도 빨라 알아듣기 어려웠다
+    u.rate = 0.88;
     var ko = speechSynthesis.getVoices().filter(function (v) {
       return v.lang && v.lang.indexOf("ko") === 0;
     });
@@ -546,15 +658,23 @@
     speechSynthesis.speak(u);
   }
 
-  /* 카드는 앞의 3곳까지만 읽는다. 전부 읽으면 너무 길다. */
+  /* 목록은 가장 가까운 한 곳만 읽는다.
+     2026-09-15 실제로 휴대폰에서 들어 본 결과, 세 곳을 모두 읽으면
+     정보가 열두 개나 지나가 무슨 말인지 남지 않았다.
+     나머지는 눈으로 보는 편이 빠르다. */
   function 카드읽기(이름, 상태, 시간, 거리) {
     if (!voice.speakOn) return;
     읽은카드수 += 1;
-    if (읽은카드수 > 3) return;
-    var t = 읽은카드수 + "번째, " + 이름 + ".";
+    if (읽은카드수 === 2) {
+      읽기예약("나머지는 화면에서 봐주세요.");
+      return;
+    }
+    if (읽은카드수 > 2) return;
+    var t = "가장 가까운 곳은 " + 이름 + "이에요.";
     if (상태) t += " " + 상태;
-    if (시간) t += " " + sayHours(시간) + ".";
-    if (거리) t += " " + 거리 + " 킬로미터.";
+    if (시간) t += closeSentence(시간);
+    var d = sayDistance(거리 + "km");
+    if (d) t += " " + d + " 떨어져 있어요.";
     읽기예약(t);
   }
 
@@ -716,7 +836,7 @@
      자료 출처처럼 매번 같은 말은 읽지 않는다(읽을까 = false). */
   function notice(문구, 읽을까) {
     el.log.appendChild(node('<div class="notice">' + esc(문구) + "</div>"));
-    if (읽을까 !== false) 읽기예약(문구);
+    if (읽을까 !== false) 읽기예약(easyWords(문구));
   }
 
   function esc(s) {
@@ -733,7 +853,7 @@
     var r = node('<div class="row ' + who + '"><div class="bubble"></div></div>');
     r.querySelector(".bubble").textContent = text;
     el.log.appendChild(r); scroll();
-    if (who === "bot") 읽기예약(text);   // 안내말은 목소리로도 전한다
+    if (who === "bot") 읽기예약(easyWords(text));  // 안내말은 목소리로도 전한다
   }
 
   function quick(items) {
@@ -1014,8 +1134,9 @@
     // 같은 이름이 여러 곳이면 마음대로 고르지 않고 후보를 보여준다
     if (c.ambiguous) {
       pending = merged;
-      bubble("‘" + (c.matched || "그 지역") +
-             "’ 이라는 곳이 여러 곳이에요. 어디를 찾으세요?", "bot");
+      var 지역 = c.matched || "그 지역";
+      bubble("‘" + 지역 + "’" + (받침있나(지역) ? "이라는" : "라는") +
+             " 곳이 여러 곳이에요. 어디를 찾으세요?", "bot");
       quick(c.candidates.slice(0, 6));
       return;
     }
@@ -1232,7 +1353,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202609151149")
+    pharmLoading = fetch("pharmacies.json?v=202609151234")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
