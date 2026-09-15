@@ -31,7 +31,12 @@
     areaPick: document.getElementById("area-pick"),
     areaName: document.getElementById("area-name"),
     areaHere: document.getElementById("area-here"),
-    distFrom: document.getElementById("dist-from")
+    distFrom: document.getElementById("dist-from"),
+    mic: document.getElementById("mic"),
+    voiceBar: document.getElementById("voice-bar"),
+    voiceMsg: document.getElementById("voice-msg"),
+    voiceStop: document.getElementById("voice-stop"),
+    speakToggle: document.getElementById("speak-toggle")
   };
 
   var PHARM = window.__PHARM_DATA__ || [];
@@ -453,6 +458,267 @@
   }
 
   /* ── 화면 ── */
+  /* ══════════════════════════════════════════════════════════
+     음성 — 말로 묻고, 목소리로 답한다
+
+     이 화면은 서버 없이 브라우저만으로 돈다.
+     음성도 마찬가지로 브라우저에 이미 들어 있는 기능(Web Speech API)만 쓴다.
+     2026-09-15 확인 — 크롬 152에서 ko-KR 인식과 한국어 목소리가 모두 동작했다.
+
+     서버본(src/api/static/widget.js)은 답을 한 덩어리로 받아 한 번에 읽지만,
+     이 화면은 말풍선과 카드를 순서대로 그린다.
+     그래서 그려지는 것을 잠깐 모아 두었다가 한 번에 읽는다.
+     ══════════════════════════════════════════════════════════ */
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var voice = { rec: null, listening: false, speakOn: false, lastFinal: "" };
+  var 읽을거리 = [], 읽기타이머 = null, 읽은카드수 = 0;
+
+  function loadSpeakPref() {
+    try { return localStorage.getItem("goodoc_speak") === "1"; } catch (e) { return false; }
+  }
+  function saveSpeakPref(on) {
+    try { localStorage.setItem("goodoc_speak", on ? "1" : "0"); } catch (e) {}
+  }
+
+  /* "08:30~17:00" 을 "오전 8시 30분부터 오후 5시까지" 로 바꾼다.
+     그냥 읽히면 "공팔 삼십 물결 십칠 공공" 처럼 들려서 알아듣기 어렵다. */
+  function sayTime(hhmm) {
+    var m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm).trim());
+    if (!m) return null;
+    var h = parseInt(m[1], 10), min = parseInt(m[2], 10);
+    if (h > 24 || min > 59) return null;
+    var 낮밤 = h < 12 ? "오전 " : (h < 18 ? "오후 " : "저녁 ");
+    var h12 = h % 12; if (h12 === 0) h12 = 12;
+    return 낮밤 + h12 + "시" + (min ? " " + min + "분" : "");
+  }
+  function 분으로(hhmm) {
+    var m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm).trim());
+    if (!m) return null;
+    return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+  }
+  function sayHours(text) {
+    var s = String(text || "").trim();
+    if (!s) return "";
+    var m = /(\d{1,2}:\d{2})\s*[~\-–]\s*(\d{1,2}:\d{2})/.exec(s);
+    if (!m) return s;
+    var a = sayTime(m[1]), b = sayTime(m[2]);
+    if (!a || !b) return s;
+    var 앞 = s.slice(0, m.index).trim();
+    /* 끝나는 시각이 시작보다 이른 자료가 섞여 있다(예: 08:30~06:00).
+       밤을 넘겨 보는 곳인지 잘못 신고된 것인지 알 수 없으므로
+       숫자는 그대로 두고 '다음 날' 만 붙인다. 고쳐 읽으면 없는 사실을 만드는 셈이다. */
+    var 시작 = 분으로(m[1]), 끝 = 분으로(m[2]);
+    if (시작 !== null && 끝 !== null && 끝 <= 시작) b = "다음 날 " + b;
+    return (앞 ? 앞 + " " : "") + a + "부터 " + b + "까지";
+  }
+
+  function stopSpeaking() {
+    if (!window.speechSynthesis) return;
+    try { speechSynthesis.cancel(); } catch (e) {}
+    if (el.speakToggle) el.speakToggle.classList.remove("talking");
+  }
+
+  /* 그려지는 것을 모았다가 잠깐 뒤 한 번에 읽는다.
+     말풍선마다 따로 읽으면 말이 뚝뚝 끊긴다. */
+  function 읽기예약(문장) {
+    if (!voice.speakOn) return;
+    var t = String(문장 || "").trim();
+    if (t) 읽을거리.push(t);
+    clearTimeout(읽기타이머);
+    읽기타이머 = setTimeout(읽기실행, 420);
+  }
+  function 읽기실행() {
+    var t = 읽을거리.join(" ");
+    읽을거리 = []; 읽은카드수 = 0;
+    if (!t || !voice.speakOn || !window.speechSynthesis) return;
+    stopSpeaking();
+    var u = new SpeechSynthesisUtterance(t);
+    u.lang = "ko-KR";
+    u.rate = 0.95;                        // 어르신이 듣기 편하도록 조금 천천히
+    var ko = speechSynthesis.getVoices().filter(function (v) {
+      return v.lang && v.lang.indexOf("ko") === 0;
+    });
+    if (ko.length) u.voice = ko[0];
+    if (el.speakToggle) el.speakToggle.classList.add("talking");
+    u.onend = u.onerror = function () {
+      if (el.speakToggle) el.speakToggle.classList.remove("talking");
+    };
+    speechSynthesis.speak(u);
+  }
+
+  /* 카드는 앞의 3곳까지만 읽는다. 전부 읽으면 너무 길다. */
+  function 카드읽기(이름, 상태, 시간, 거리) {
+    if (!voice.speakOn) return;
+    읽은카드수 += 1;
+    if (읽은카드수 > 3) return;
+    var t = 읽은카드수 + "번째, " + 이름 + ".";
+    if (상태) t += " " + 상태;
+    if (시간) t += " " + sayHours(시간) + ".";
+    if (거리) t += " " + 거리 + " 킬로미터.";
+    읽기예약(t);
+  }
+
+  function setSpeak(on, 알릴까) {
+    voice.speakOn = !!on;
+    saveSpeakPref(voice.speakOn);
+    if (el.speakToggle) {
+      el.speakToggle.setAttribute("aria-pressed", voice.speakOn ? "true" : "false");
+      el.speakToggle.setAttribute(
+        "aria-label", voice.speakOn ? "답변 읽어주기 끄기" : "답변 읽어주기 켜기");
+    }
+    if (!voice.speakOn) { stopSpeaking(); 읽을거리 = []; }
+    else if (알릴까) 읽기예약("이제 답변을 읽어드릴게요.");
+  }
+
+  function voiceBar(on, msg) {
+    if (!el.voiceBar) return;
+    el.voiceBar.hidden = !on;
+    if (msg && el.voiceMsg) el.voiceMsg.textContent = msg;
+  }
+
+  function stopListen() {
+    if (voice.rec && voice.listening) { try { voice.rec.stop(); } catch (e) {} }
+  }
+
+  /* 마이크가 실제로 꽂혀 있는지 먼저 본다.
+     2026-09-15 확인 — 마이크가 없는 컴퓨터에서 음성인식을 시작하면
+     브라우저가 'not-allowed'(권한 거부)를 돌려준다.
+     그대로 "자물쇠에서 허용해 주세요" 라고 안내하면
+     허용할 것이 없는 사람에게 엉뚱한 길을 알려주는 셈이다.
+     알 수 없으면(null) 일단 시도한다. 없다고 단정하지 않는다. */
+  function 마이크확인(다음) {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+      다음(null);
+      return;
+    }
+    navigator.mediaDevices.enumerateDevices().then(function (list) {
+      var 입력 = list.filter(function (d) { return d.kind === "audioinput"; });
+      다음(입력.length > 0);
+    }).catch(function () { 다음(null); });
+  }
+
+  var 마이크없음안내 =
+    "이 기기에 마이크가 없어요. 마이크 달린 이어폰을 꽂거나 휴대폰에서 열어 주세요";
+
+  function startListen() {
+    if (!SR || voice.listening) return;
+    stopSpeaking();
+    마이크확인(function (있나) {
+      if (있나 === false) {
+        voiceBar(true, 마이크없음안내);
+        setTimeout(function () { voiceBar(false); }, 5200);
+        return;
+      }
+      듣기시작();
+    });
+  }
+
+  function 듣기시작() {
+    var rec = new SR();
+    voice.rec = rec;
+    rec.lang = "ko-KR";
+    rec.continuous = false;
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+    voice.lastFinal = "";
+
+    rec.onstart = function () {
+      voice.listening = true;
+      if (el.mic) el.mic.classList.add("listening");
+      voiceBar(true, "듣고 있어요. 말씀해 주세요");
+    };
+    rec.onresult = function (e) {
+      var 중간 = "", 확정 = "";
+      for (var i = e.resultIndex; i < e.results.length; i++) {
+        var t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) 확정 += t; else 중간 += t;
+      }
+      if (확정) voice.lastFinal += 확정;
+      var 지금 = (voice.lastFinal + 중간).trim();
+      if (지금) {
+        el.input.value = 지금;
+        voiceBar(true, "“" + 지금 + "”");
+      }
+    };
+    rec.onerror = function (e) {
+      var 말 = "소리를 알아듣지 못했어요. 다시 한 번 말씀해 주세요";
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        // 권한을 막은 것인지, 마이크가 아예 없는 것인지 나눠서 알려준다
+        마이크확인(function (있나) {
+          voiceBar(true, 있나 === false ? 마이크없음안내
+            : "마이크 사용이 막혀 있어요. 주소창 왼쪽 자물쇠에서 허용해 주세요");
+          setTimeout(function () { voiceBar(false); }, 5200);
+        });
+        return;
+      } else if (e.error === "no-speech") {
+        말 = "소리가 들리지 않았어요. 마이크를 다시 눌러 주세요";
+      } else if (e.error === "network") {
+        말 = "인터넷 연결을 확인해 주세요";
+      } else if (e.error === "aborted") {
+        말 = "";
+      }
+      if (말) {
+        voiceBar(true, 말);
+        setTimeout(function () { voiceBar(false); }, 3600);
+      } else { voiceBar(false); }
+    };
+    rec.onend = function () {
+      voice.listening = false;
+      if (el.mic) el.mic.classList.remove("listening");
+      var 말한것 = (voice.lastFinal || el.input.value || "").trim();
+      if (말한것) {
+        voiceBar(false);
+        el.input.value = "";
+        setSpeak(true);                   // 말로 물었으면 목소리로 답한다
+        bubble(말한것, "me");
+        ask(말한것);
+      } else if (el.voiceBar && !el.voiceBar.hidden &&
+                 el.voiceMsg.textContent.indexOf("듣고 있어요") === 0) {
+        voiceBar(false);
+      }
+    };
+    try {
+      rec.start();
+    } catch (e) {
+      voiceBar(true, "마이크를 시작하지 못했어요. 잠시 뒤 다시 눌러 주세요");
+      setTimeout(function () { voiceBar(false); }, 3600);
+    }
+  }
+
+  /* 브라우저가 지원할 때만 버튼을 보여준다. 없는 기능을 있다고 하지 않는다. */
+  function setupVoice() {
+    if (SR && el.mic) {
+      el.mic.hidden = false;
+      el.mic.addEventListener("click", function () {
+        if (voice.listening) stopListen(); else startListen();
+      });
+    }
+    if (el.voiceStop) {
+      el.voiceStop.addEventListener("click", function () {
+        voice.lastFinal = "";
+        el.input.value = "";
+        stopListen();
+        voiceBar(false);
+      });
+    }
+    if (window.speechSynthesis && el.speakToggle) {
+      el.speakToggle.hidden = false;
+      el.speakToggle.addEventListener("click", function () {
+        setSpeak(!voice.speakOn, true);
+      });
+      setSpeak(loadSpeakPref());
+    }
+  }
+
+  /* 회색 안내줄.
+     화면에만 띄우고 넘어가면, 귀로 듣는 사람은 '조건에 맞는 곳을 못 찾았다'
+     같은 중요한 단서를 놓친다. 그래서 그릴 때 읽기도 함께 예약한다.
+     자료 출처처럼 매번 같은 말은 읽지 않는다(읽을까 = false). */
+  function notice(문구, 읽을까) {
+    el.log.appendChild(node('<div class="notice">' + esc(문구) + "</div>"));
+    if (읽을까 !== false) 읽기예약(문구);
+  }
+
   function esc(s) {
     return String(s == null ? "" : s)
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -467,6 +733,7 @@
     var r = node('<div class="row ' + who + '"><div class="bubble"></div></div>');
     r.querySelector(".bubble").textContent = text;
     el.log.appendChild(r); scroll();
+    if (who === "bot") 읽기예약(text);   // 안내말은 목소리로도 전한다
   }
 
   function quick(items) {
@@ -490,6 +757,81 @@
     return '<span class="sep">·</span><span>' + esc(h) + "</span>";
   }
 
+  /* ── 길찾기 ─────────────────────────────────────────────
+     굿닥 병원 상세 페이지를 직접 열어 확인한 결과(2026-09-09)
+     지도 그림과 주소만 있고 경로 안내 버튼은 없었다.
+     급한 사람에게는 '어디로' 다음에 '어떻게 가나' 가 바로 필요하다.
+     그래서 좌표를 그대로 넘겨 네이버지도·카카오맵의 길찾기를 연다.
+     내 위치를 허락했으면 출발지로 넣고, 아니면 도착지만 넣는다. */
+  var ROUTE_MODES = [["transit", "🚇 대중교통"], ["car", "🚗 자동차"],
+                     ["walk", "🚶 도보"]];
+
+  function routeUrl(mode, name, lat, lon) {
+    var nm = encodeURIComponent(name || "목적지");
+    if (!lat || !lon) return "https://map.naver.com/p/search/" + nm;
+    var from = myPos
+      ? myPos.lon + "," + myPos.lat + "," + encodeURIComponent("내 위치")
+      : "-";
+    return "https://map.naver.com/p/directions/" + from + "/" +
+      lon + "," + lat + "," + nm + "/-/" + mode;
+  }
+
+  function kakaoUrl(name, lat, lon) {
+    var nm = encodeURIComponent(name || "목적지");
+    if (!lat || !lon) return "https://map.kakao.com/?q=" + nm;
+    var to = nm + "," + lat + "," + lon;
+    if (!myPos) return "https://map.kakao.com/link/to/" + to;
+    return "https://map.kakao.com/link/from/" +
+      encodeURIComponent("내 위치") + "," + myPos.lat + "," + myPos.lon +
+      "/to/" + to;
+  }
+
+  function routeRow(name, lat, lon) {
+    return '<div class="route" data-rn="' + esc(name || "") +
+      '" data-ry="' + esc(lat || "") + '" data-rx="' + esc(lon || "") + '">' +
+      routeInner(name, lat, lon) + "</div>";
+  }
+
+  function routeInner(name, lat, lon) {
+    var 안내 = myPos
+      ? '<span class="rlabel on">📍 내 위치에서</span>'
+      : '<span class="rlabel">길찾기</span>' +
+        '<button type="button" class="rhere">📍 내 위치 쓰기</button>';
+    return '<div class="rhead">' + 안내 + '</div><div class="rbtns">' +
+      ROUTE_MODES.map(function (m) {
+        return '<a class="rbtn" target="_blank" rel="noopener" href="' +
+          esc(routeUrl(m[0], name, lat, lon)) + '">' + m[1] + "</a>";
+      }).join("") +
+      '<a class="rbtn kakao" target="_blank" rel="noopener" href="' +
+      esc(kakaoUrl(name, lat, lon)) + '">카카오맵</a></div>';
+  }
+
+  /* 이미 그려 둔 길찾기 줄을 다시 그린다 (내 위치를 켠 뒤) */
+  function refreshRoutes() {
+    var 줄 = document.querySelectorAll(".route");
+    for (var i = 0; i < 줄.length; i++) {
+      var d = 줄[i].dataset;
+      줄[i].innerHTML = routeInner(d.rn, d.ry, d.rx);
+    }
+  }
+
+  /* '내 위치 쓰기' — 사용자가 직접 눌렀을 때만 위치를 묻는다. */
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest(".rhere");
+    if (!b) return;
+    if (!navigator.geolocation) { b.textContent = "위치를 쓸 수 없어요"; return; }
+    b.textContent = "📍 확인 중…";
+    b.disabled = true;
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      myPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+      refreshRoutes();
+      refreshRoutes();
+    }, function () {
+      b.textContent = "위치 허용이 필요해요";
+      b.disabled = false;
+    }, { timeout: 8000, maximumAge: 60000 });
+  });
+
   function card(h, dept) {
     var t = todayHours(h);
     var mark = t.open === true ? '<span class="state open">진료중</span>'
@@ -510,6 +852,7 @@
         '<div class="addr">' + esc(h.a) + "</div>" +
         '<div class="cta"><button type="button" class="ghost">병원 보기</button>' +
         '<button type="button" class="fill">예약하기</button></div>' +
+        routeRow(h.n, h.y, h.x) +
       "</div>");
 
     c.querySelector(".ghost").addEventListener("click", function () {
@@ -529,6 +872,13 @@
       confirmBox(h, dept, t);
     });
     el.log.appendChild(c); scroll();
+
+    // 진료시간은 우리가 모은 심평원·응급의료정보 자료에서 나온 값이다
+    var 상태 = t.open === true ? "지금 진료중이에요."
+      : t.open === false ? "오늘은 쉬어요."
+      : "진료시간이 공개되지 않아 전화로 확인이 필요해요.";
+    var 시간 = (t.text && String(t.text).indexOf("미확인") < 0) ? t.text : "";
+    카드읽기(h.n, 상태, 시간, h._km);
   }
 
   function confirmBox(h, dept, t) {
@@ -549,8 +899,8 @@
       '<a class="out" href="https://www.goodoc.co.kr/hospitals" target="_blank" ' +
       'rel="noopener">예약 페이지</a></div>' +
       '<div class="script">' + esc(script) + "</div></div>"));
-    el.log.appendChild(node('<div class="notice">예약은 병원에 직접 문의하거나 ' +
-      "예약 페이지에서 진행해 주세요. 이 화면에서 예약이 접수되지는 않습니다.</div>"));
+    notice("예약은 병원에 직접 문의하거나 예약 페이지에서 진행해 주세요. "
+           + "이 화면에서 예약이 접수되지는 않습니다.");
     scroll();
   }
 
@@ -721,10 +1071,7 @@
     out.skipped.forEach(function (x) {
       notices.push(x + " 은(는) 반영하지 못했어요.");
     });
-    if (notices.length) {
-      el.log.appendChild(node('<div class="notice">' +
-        esc(notices.join(" ")) + "</div>"));
-    }
+    if (notices.length) notice(notices.join(" "));
     el.log.appendChild(node('<div class="from-note">거리는 ' +
       esc(c.region) + " 기준이에요.</div>"));
     out.rows.forEach(function (h) { card(h, c.dept); });
@@ -739,6 +1086,8 @@
       bubble("안녕하세요. 어디가 불편하세요?", "bot");
       bubble("증상을 말씀해주시면 어떤 진료과를 가야 하는지, "
              + "가까운 병원은 어디인지 같이 찾아드릴게요.", "bot");
+      // 마이크를 쓸 수 있는 브라우저에서만 안내한다
+      if (SR) bubble("글자 대신 아래 마이크를 눌러 말씀하셔도 돼요.", "bot");
       quick(["감기 걸린 것 같아요", "지금 문 연 병원",
              "주말에도 하는 소아과", "서울 강남구 피부과"]);
     }
@@ -748,6 +1097,10 @@
     el.panel.hidden = true;
     document.body.classList.remove("panel-open");
     if (el.assistant) el.assistant.hidden = false;
+    // 창을 닫으면 듣기도 읽어주기도 멈춘다
+    stopListen();
+    stopSpeaking();
+    voiceBar(false);
   }
 
   /* ── 첫 화면 '내 주변 병원' (실제 데이터) ── */
@@ -879,7 +1232,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202609091506")
+    pharmLoading = fetch("pharmacies.json?v=202609151144")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
@@ -953,9 +1306,7 @@
       }
 
       var top = hit.slice(0, 5);
-      if (안내) {
-        el.log.appendChild(node('<div class="notice">' + esc(안내) + "</div>"));
-      }
+      if (안내) notice(안내);
       // '광주 북구 야간 약국' 처럼 문장을 그대로 받으므로 '약국' 을 또 붙이지 않는다
       var 머리 = regionText.indexOf("약국") >= 0
         ? regionText : regionText + " 약국";
@@ -977,14 +1328,20 @@
             '<div class="addr"></div>' +
             '<div class="cta"><a class="fill" href="tel:' + esc(x.t) +
             '">전화하기</a></div>' +
+            routeRow(x.n, x.y, x.x) +
           '</div>');
         c2.querySelector(".name").textContent = x.n;
         c2.querySelector(".addr").textContent = x.a;
         el.log.appendChild(c2);
+
+        var 상태 = x.al ? "24시간 운영이에요."
+          : x.la ? "심야까지 운영이에요."
+          : x.ni ? "야간까지 운영이에요." : "";
+        카드읽기(x.n, 상태, 오늘 ? "오늘 " + 오늘 : "", x._km);
       });
-      el.log.appendChild(node(
-        '<div class="notice">건강보험심사평가원 약국정보서비스 자료입니다. ' +
-        '영업시간은 공개되어 있지 않아 표시하지 않습니다.</div>'));
+      // 출처는 매번 같은 말이라 눈으로만 보여준다
+      notice("건강보험심사평가원 약국정보서비스 자료입니다. "
+             + "영업시간은 공개되어 있지 않아 표시하지 않습니다.", false);
       scroll();
     }
   }
@@ -1074,6 +1431,7 @@
   }
 
   loadNearby(area);
+  setupVoice();
 
   el.fab.addEventListener("click", open);
   el.close.addEventListener("click", close);
