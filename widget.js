@@ -199,17 +199,26 @@
       return { dept: null, ask: spec };
     }
 
-    var best = null, bestLen = 0;
+    var best = null, bestLen = 0, bestWord = "";
     Object.keys(S).forEach(function (dept) {
       if (first.indexOf(dept) >= 0) return;
       S[dept].forEach(function (w) {
         if (t.indexOf(w) >= 0 && w.length > bestLen) {
-          best = dept; bestLen = w.length;
+          best = dept; bestLen = w.length; bestWord = w;
         }
       });
     });
+    // 2026-10-01 : 일반 '감기'는 이비인후과·내과·가정의학과 모두 진료한다 → 한 과로 정하지 않는다.
+    // '목감기'·'코감기'처럼 구체적인 말은 이비인후과.
+    if (MULTI_DEPT[bestWord]) {
+      if (/코감기|목감기/.test(t)) return { dept: "이비인후과", ask: null };
+      return { dept: null, depts: MULTI_DEPT[bestWord].slice(), ask: null };
+    }
     return { dept: best, ask: null };
   }
+  // 서버(파이썬)가 규칙을 넘겨주면 그것을, 아니면 같은 기본값을 쓴다
+  var MULTI_DEPT = R.multiDept || { "감기": ["이비인후과", "내과", "가정의학과"] };
+  var NEAR_WORDS = (R.distance || []).concat(["여기", "내 위치", "현재 위치", "지금 있는 곳", "집 근처"]);
 
   /* ── 조건 추출 (파이썬 규칙 이식) ── */
   function extract(text) {
@@ -235,6 +244,7 @@
     if (!c.dept) {
       var got2 = matchSymptom(t);
       c.dept = got2.dept;
+      c.depts = got2.depts || null;
       c.symptomChoice = got2.ask;
     }
 
@@ -249,6 +259,7 @@
     var has = function (list) {
       return list.some(function (x) { return t.indexOf(x) >= 0; });
     };
+    if (has(NEAR_WORDS)) c.nearMe = true;
     if (has(R.parking)) c.parking = true;
     if (has(R.specialist)) c.specialist = true;
     if (has(R.rating)) c.rating = true;
@@ -358,6 +369,23 @@
 
     if (c.region) res = filterRegion(res, c.region);
     if (c.dept) res = res.filter(function (h) { return h.d.indexOf(c.dept) >= 0; });
+    if (!c.dept && c.depts) {
+      res = res.filter(function (h) {
+        // 이름에 과가 들어간 과를 먼저 고른다 ('참사랑가정의학과' 가 내과도 등록했으면 가정의학과로)
+        var got = c.depts.filter(function (d) { return h.d.indexOf(d) >= 0; });
+        if (!got.length) return false;
+        var named = got.filter(function (d) { return h.n.indexOf(d.replace("과", "")) >= 0; });
+        h._dept = (named[0] || got[0]);
+        return true;
+      });
+    }
+    // 지역 이름 없이 현재 위치로 찾을 때 : 3km 안에서 찾고, 없으면 10km 까지 넓힌다
+    if (!c.region && c.here) {
+      res.forEach(function (h) { h._km = Math.round(dist(c.here.lat, c.here.lon, h.y, h.x) * 100) / 100; });
+      var near = res.filter(function (h) { return h._km <= 3; });
+      if (!near.length) near = res.filter(function (h) { return h._km <= 10; });
+      res = near;
+    }
     res = res.filter(function (h) { return NON_OUTPATIENT.indexOf(h.c) < 0; });
     if (c.specialist) res = res.filter(function (h) { return h.s >= 3; });
 
@@ -428,15 +456,17 @@
                conditions: checks.map(function (x) { return x[0]; }) };
     }
 
-    var lat = res.map(function (h) { return h.y; }).sort()[Math.floor(res.length / 2)];
-    var lon = res.map(function (h) { return h.x; }).sort()[Math.floor(res.length / 2)];
-    res.forEach(function (h) { h._km = Math.round(dist(lat, lon, h.y, h.x) * 100) / 100; });
+    if (!(!c.region && c.here)) {
+      var lat = res.map(function (h) { return h.y; }).sort()[Math.floor(res.length / 2)];
+      var lon = res.map(function (h) { return h.x; }).sort()[Math.floor(res.length / 2)];
+      res.forEach(function (h) { h._km = Math.round(dist(lat, lon, h.y, h.x) * 100) / 100; });
+    }
 
     // 확인된 곳 먼저, 그다음 찾는 계열과 맞는 기관 먼저
-    var family = deptFamily(c.dept);
+    var family = deptFamily(c.dept || (c.depts && c.depts[0]));
     res.forEach(function (h) {
       h._ok = h._mark === "미확인" ? 1 : 0;
-      h._fit = clinicFit(h.c, family);
+      h._fit = clinicFit(h.c, h._dept ? deptFamily(h._dept) : family);
     });
 
     res.sort(function (a, b) {
@@ -447,9 +477,11 @@
         if (ga !== gb) return ga - gb;
       } else if (c.specialist) {
         if (a.s !== b.s) return b.s - a.s;
-      } else if (c.dept) {
-        var core = c.dept.replace("과", "");
-        var ma = a.n.indexOf(core) >= 0 ? 0 : 1, mb = b.n.indexOf(core) >= 0 ? 0 : 1;
+      } else if (c.dept || c.depts) {
+        // 이름에 그 과가 들어간 전문 의원을 먼저 (감기처럼 여러 과면 그 병원이 맞은 과로 본다)
+        var core = (c.dept || a._dept || "").replace("과", "");
+        var core2 = (c.dept || b._dept || "").replace("과", "");
+        var ma = core && a.n.indexOf(core) >= 0 ? 0 : 1, mb = core2 && b.n.indexOf(core2) >= 0 ? 0 : 1;
         if (ma !== mb) return ma - mb;
       }
       return a._km - b._km;
@@ -1073,8 +1105,40 @@
   var REGION_CHOICES = ["서울 강남구", "부산 해운대구", "광주 북구",
                         "대구 중구", "인천 남동구", "대전 서구"];
 
-  function ask(text) {
+  // 현재 위치를 받아 온다. 허용하면 cb(true), 거부·실패하면 cb(false)
+  var locDenied = false;
+  function askLocation(cb) {
+    if (myPos) { cb(true); return; }
+    if (!navigator.geolocation || locDenied) { cb(false); return; }
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      myPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+      refreshRoutes();
+      cb(true);
+    }, function () { locDenied = true; cb(false); },
+    { timeout: 10000, maximumAge: 60000 });
+  }
+  function regionQuestion(c, merged) {
+    pending = merged;
+    bubble((c.dept ? c.dept + " 진료를 찾을게요. " : "") + "어느 지역인가요?", "bot");
+    var items = REGION_CHOICES.map(function (d) { return { label: d, value: d }; });
+    if (navigator.geolocation && !locDenied) items.unshift({ label: "📍 현재 위치로 찾기", value: "__HERE__" });
+    quick(items);
+  }
+
+  function ask(text, quiet) {
     if (!text) return;
+
+    // '현재 위치로 찾기' 버튼
+    if (text === "__HERE__") {
+      var 이어서 = pending;
+      askLocation(function (ok) {
+        if (ok && 이어서) { pending = ""; ask(이어서, true); }
+        else if (ok) { bubble("위치를 확인했어요. 어디가 불편하신지, 또는 진료과를 알려주세요.", "bot"); }
+        else { bubble("위치를 쓸 수 없어요. 브라우저에서 위치 권한을 허용하거나 지역을 골라 주세요.", "bot");
+               quick(REGION_CHOICES.map(function (d) { return { label: d, value: d }; })); }
+      });
+      return;
+    }
 
     // 빠른 선택 버튼 값. 서버 쪽 dialog.reply 와 같은 방식으로 처리한다.
     if (text === "__symptom__") {
@@ -1106,7 +1170,7 @@
       var sg = bar >= 0 ? body.slice(bar + 1) : "";
       pickedRegion = sg || sd;
       text = "";
-    } else {
+    } else if (!quiet) {
       bubble(text, "me");
     }
 
@@ -1144,6 +1208,20 @@
       if (got3.region) {
         pending = "";
         pharmacyList(merged);   // 문장을 그대로 넘겨 야간·심야 조건을 살린다
+        return;
+      }
+      // 지역을 안 말했으면 먼저 지금 위치로 찾는다. 위치를 못 받을 때만 지역을 묻는다.
+      if (navigator.geolocation && !locDenied) {
+        var 문장 = merged;
+        pending = "";
+        askLocation(function (ok) {
+          if (ok) { pharmacyList(문장, myPos); return; }
+          pending = 문장;
+          bubble("위치를 쓸 수 없어 지역을 여쭤볼게요. 어느 지역 약국을 찾으세요?", "bot");
+          quick(REGION_CHOICES.map(function (x) {
+            return { label: x, value: x + " 약국" };
+          }));
+        });
         return;
       }
       pending = merged;
@@ -1185,6 +1263,22 @@
       return;
     }
 
+    // 지역을 말하지 않았으면 현재 위치로 찾는다 (2026-10-01 영훈 지적: "가까운 데"인데 지역을 되물었다)
+    if (!c.region && (c.dept || c.depts || c.nearMe)) {
+      if (myPos) {
+        c.here = myPos;
+      } else if (navigator.geolocation && !locDenied) {
+        pending = merged;
+        bubble("지금 계신 곳에서 가까운 곳을 찾을게요. 위치 사용을 허용해 주세요.", "bot");
+        askLocation(function (ok) {
+          var m = pending; pending = "";
+          if (ok) { ask(m, true); }
+          else { bubble("위치를 쓸 수 없어 지역을 여쭤볼게요.", "bot"); regionQuestion(c, m); }
+        });
+        return;
+      }
+    }
+
     if (isDiagnosisAsk(text) && c.dept) {
       pending = merged;
       bubble("증상만으로는 판단하기 어려워요. 가까운 병원에서 확인하시는 게 좋습니다. "
@@ -1193,15 +1287,11 @@
       return;
     }
 
-    if (!c.region) {
-      pending = merged;
-      bubble((c.dept ? c.dept + " 진료를 찾을게요. " : "") + "어느 지역인가요?", "bot");
-      quick(REGION_CHOICES.map(function (d) {
-        return { label: d, value: d };
-      }));
+    if (!c.region && !c.here) {
+      regionQuestion(c, merged);
       return;
     }
-    if (!c.dept && !(c.sunday || c.saturday || c.night || c.openNow
+    if (!c.dept && !c.depts && !(c.sunday || c.saturday || c.night || c.openNow
                      || c.openUntil || c.parking)) {
       pending = merged;
       bubble("어디가 불편하신지, 또는 진료과를 알려주세요.", "bot");
@@ -1213,21 +1303,27 @@
 
     var out = search(c);
     pending = "";
+    var 장소 = c.region || "현재 위치 근처";
+    var 무엇 = c.dept || (c.depts ? "감기 진료 병원" : "병원");
+    if (c.depts && !c.dept) {
+      bubble("감기는 " + c.depts.join("·") + "에서 진료해요. 가까운 전문 의원부터 보여드릴게요.", "bot");
+    }
     if (!out.rows.length && !out.unknownRows.length) {
-      bubble(c.region + " " + (c.dept || "병원") +
+      bubble(장소 + " " + 무엇 +
+             (c.here && !c.region ? " 10km 안에서" : "") +
              " 조건에 맞는 곳을 찾지 못했어요. 조건을 조금 줄여볼까요?", "bot");
       quick([{ label: "조건 없이 다시 찾기",
-               value: c.region + " " + (c.dept || "병원") }]);
+               value: (c.region || "가까운") + " " + (c.dept || (c.depts ? "감기" : "병원")) }]);
       return;
     }
     var ct = out.conditions.join("·");
     if (out.conditions.length) {
       bubble(out.rows.length
-        ? c.region + " " + (c.dept || "병원") + " 중 " + ct + " 조건을 모두 확인한 곳은 " +
+        ? 장소 + " " + 무엇 + " 중 " + ct + " 조건을 모두 확인한 곳은 " +
           out.rows.length + "곳이에요."
-        : c.region + " " + (c.dept || "병원") + " 중 " + ct + " 조건을 공공데이터로 확인한 곳이 없어요.", "bot");
+        : 장소 + " " + 무엇 + " 중 " + ct + " 조건을 공공데이터로 확인한 곳이 없어요.", "bot");
     } else {
-      bubble(c.region + " " + (c.dept || "병원") + " " + out.rows.length + "곳이에요.", "bot");
+      bubble(장소 + " " + 무엇 + " " + out.rows.length + "곳이에요.", "bot");
     }
     var notices = [];
     if (out.unknownRows.length) {
@@ -1239,12 +1335,12 @@
     });
     if (notices.length) notice(notices.join(" "));
     el.log.appendChild(node('<div class="from-note">거리는 ' +
-      esc(c.region) + " 기준이에요.</div>"));
-    out.rows.forEach(function (h) { card(h, c.dept); });
+      esc(c.region && !c.here ? c.region : "현재 위치") + " 기준이에요.</div>"));
+    out.rows.forEach(function (h) { card(h, c.dept || h._dept); });
     if (out.unknownRows.length) {
       el.log.appendChild(node('<div class="from-note jg-unknown-head">아래는 ' + esc(ct) +
         " 정보가 공공데이터에 없어 확인하지 못한 곳이에요.</div>"));
-      out.unknownRows.forEach(function (h) { card(h, c.dept); });
+      out.unknownRows.forEach(function (h) { card(h, c.dept || h._dept); });
     }
     emit("jg:results", { count: out.rows.length + out.unknownRows.length });
   }
@@ -1409,7 +1505,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202610011613")
+    pharmLoading = fetch("pharmacies.json?v=202610011707")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
@@ -1422,14 +1518,14 @@
     return pharmLoading;
   }
 
-  function pharmacyList(regionText) {
+  function pharmacyList(regionText, here) {
     openPanel();
     setTimeout(function () {
       bubble("약국 찾기", "me");
       var wait = bubbleNode("약국 정보를 불러오는 중이에요…", "bot");
       ensurePharm().then(function () {
         if (wait) wait.remove();
-        drawPharmacies(regionText);
+        drawPharmacies(regionText, here);
       }).catch(function () {
         if (wait) wait.remove();
         bubble("약국 정보를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.", "bot");
@@ -1444,7 +1540,22 @@
     return r;
   }
 
-  function drawPharmacies(regionText) {
+  function drawPharmacies(regionText, here) {
+    if (here) {
+      // 현재 위치 기준: 3km 안을 먼저, 없으면 10km 까지 넓힌다
+      var near = PHARM.map(function (x) {
+        x._km = Math.round(dist(here.lat, here.lon, x.y, x.x) * 100) / 100;
+        return x;
+      });
+      var hit = near.filter(function (x) { return x._km <= 3; });
+      if (!hit.length) hit = near.filter(function (x) { return x._km <= 10; });
+      if (!hit.length) {
+        bubble("현재 위치 10km 안에서 약국을 찾지 못했어요. 지역 이름을 함께 말씀해 주세요.", "bot");
+        return;
+      }
+      hit.sort(function (a, b) { return a._km - b._km; });
+      return drawPharmHits(hit, regionText, "현재 위치 근처 약국");
+    }
     {
       var got = resolveRegion(regionText.replace(/\s/g, ""));
       var name = got.region;
@@ -1466,7 +1577,12 @@
         x._km = Math.round(dist(lat, lon, x.y, x.x) * 100) / 100;
       });
       hit.sort(function (a, b) { return a._km - b._km; });
+      return drawPharmHits(hit, regionText, null);
+    }
+  }
 
+  function drawPharmHits(hit, regionText, 머리말) {
+    {
       // 야간·심야·24시간 조건이 있으면 걸러 낸다
       var 조건 = /24시|이십사시/.test(regionText) ? "al"
         : /심야|새벽|자정/.test(regionText) ? "la"
@@ -1485,8 +1601,8 @@
       var top = hit.slice(0, 5);
       if (안내) notice(안내);
       // '광주 북구 야간 약국' 처럼 문장을 그대로 받으므로 '약국' 을 또 붙이지 않는다
-      var 머리 = regionText.indexOf("약국") >= 0
-        ? regionText : regionText + " 약국";
+      var 머리 = 머리말 || (regionText.indexOf("약국") >= 0
+        ? regionText : regionText + " 약국");
       bubble(머리 + " " + top.length + "곳이에요. (전체 "
              + hit.length + "곳 중 가까운 순)", "bot");
       top.forEach(function (x) {
@@ -1517,8 +1633,8 @@
         카드읽기(x.n, 상태, 오늘 ? "오늘 " + 오늘 : "", x._km);
       });
       // 출처는 매번 같은 말이라 눈으로만 보여준다
-      notice("건강보험심사평가원 약국정보서비스 자료입니다. "
-             + "영업시간은 공개되어 있지 않아 표시하지 않습니다.", false);
+      notice("건강보험심사평가원 약국정보와 국립중앙의료원 응급의료정보를 합친 자료입니다. "
+             + "운영시간은 실제와 다를 수 있으니 방문 전 전화로 확인해 주세요.", false);
       scroll();
     }
   }
