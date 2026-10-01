@@ -372,8 +372,13 @@
     }
     if (c.sunday) {
       checks.push(["일요일 진료", function (h) {
-        if (!h.sun || h.sun === "미확인") return null;
-        return String(h.sun).indexOf("휴진") < 0;
+        // 서버판(availability.py)과 같은 규칙 : 시간이 적혀 있으면 진료, '휴진'이면 쉼,
+        // 그 밖의 말(예: '응급실 진료')은 외래 진료 여부를 알 수 없으므로 미확인.
+        // (2026-10-01 '응급실 진료'를 일요일 진료로 잘못 세던 것을 고침)
+        var s = String(h.sun || "").trim();
+        if (/^\d{1,2}:\d{2}\s*~\s*\d{1,2}:\d{2}$/.test(s)) return true;
+        if (/^((전부|종일|매주|일요일|공휴일)?\s*(휴진|휴무)|진료\s*없음)$/.test(s)) return false;
+        return null;
       }]);
     }
     if (c.saturday) {
@@ -450,8 +455,19 @@
       return a._km - b._km;
     });
 
+    // 조건을 말했으면, 공공데이터로 확인된 곳만 '추천'으로 보여준다.
+    // 확인된 곳이 3곳이 안 돼도 미확인 곳으로 억지로 채우지 않고, 따로 2곳까지만 보여준다.
+    var rows, unknownRows = [];
+    if (checks.length) {
+      var ok = res.filter(function (h) { return h._mark === "확인됨"; });
+      var un = res.filter(function (h) { return h._mark === "미확인"; });
+      rows = ok.slice(0, 3);
+      if (rows.length < 3) unknownRows = un.slice(0, 2);
+    } else {
+      rows = res.slice(0, 3);
+    }
     return {
-      rows: res.slice(0, 3), skipped: skipped,
+      rows: rows, unknownRows: unknownRows, skipped: skipped,
       confirmed: confirmed, unconfirmed: unconfirmed,
       conditions: checks.map(function (x) { return x[0]; })
     };
@@ -885,7 +901,14 @@
       });
       box.appendChild(b);
     });
-    el.log.appendChild(box); scroll();
+    el.log.appendChild(box);
+    emit("jg:quick", { items: items, node: box });
+    scroll();
+  }
+
+  // 생활 기능(life.js)에 알리는 사건. 위젯 동작은 이 사건과 무관하게 그대로다.
+  function emit(name, detail) {
+    try { document.dispatchEvent(new CustomEvent(name, { detail: detail })); } catch (e) {}
   }
 
   // 배지에 이미 '진료시간 미확인'이라고 적혀 있으면 같은 말을 또 쓰지 않는다
@@ -1009,7 +1032,10 @@
       bubble(h.n + " 예약", "me");
       confirmBox(h, dept, t);
     });
-    el.log.appendChild(c); scroll();
+    el.log.appendChild(c);
+    emit("jg:card", { card: { name: h.n, tel: h.t, addr: h.a, lat: h.y, lon: h.x,
+                              hours: t.text }, node: c });
+    scroll();
 
     // 진료시간은 우리가 모은 심평원·응급의료정보 자료에서 나온 값이다
     var 상태 = t.open === true ? "지금 진료중이에요."
@@ -1187,25 +1213,26 @@
 
     var out = search(c);
     pending = "";
-    if (!out.rows.length) {
+    if (!out.rows.length && !out.unknownRows.length) {
       bubble(c.region + " " + (c.dept || "병원") +
              " 조건에 맞는 곳을 찾지 못했어요. 조건을 조금 줄여볼까요?", "bot");
       quick([{ label: "조건 없이 다시 찾기",
                value: c.region + " " + (c.dept || "병원") }]);
       return;
     }
-    bubble(c.region + " " + (c.dept || "병원") + " " + out.rows.length + "곳이에요.", "bot");
+    var ct = out.conditions.join("·");
+    if (out.conditions.length) {
+      bubble(out.rows.length
+        ? c.region + " " + (c.dept || "병원") + " 중 " + ct + " 조건을 모두 확인한 곳은 " +
+          out.rows.length + "곳이에요."
+        : c.region + " " + (c.dept || "병원") + " 중 " + ct + " 조건을 공공데이터로 확인한 곳이 없어요.", "bot");
+    } else {
+      bubble(c.region + " " + (c.dept || "병원") + " " + out.rows.length + "곳이에요.", "bot");
+    }
     var notices = [];
-    if (out.conditions.length && out.unconfirmed) {
-      var ct = out.conditions.join("·");
-      if (out.confirmed) {
-        notices.push(ct + " 조건은 " + out.confirmed +
-          "곳에서 확인됐고, 나머지 " + out.unconfirmed +
-          "곳은 병원이 진료시간을 공개하지 않아 전화 확인이 필요해요.");
-      } else {
-        notices.push(ct + " 정보가 공개된 병원이 이 지역에 없어요. 아래는 조건을 " +
-          "빼고 가까운 순으로 찾은 곳이며, 방문 전 전화 확인을 권해요.");
-      }
+    if (out.unknownRows.length) {
+      notices.push("조건 일부를 확인하지 못한 곳 " + out.unknownRows.length +
+        "곳은 아래에 따로 보여드릴게요. 방문 전 전화로 확인해 주세요.");
     }
     out.skipped.forEach(function (x) {
       notices.push(x + " 은(는) 반영하지 못했어요.");
@@ -1214,6 +1241,12 @@
     el.log.appendChild(node('<div class="from-note">거리는 ' +
       esc(c.region) + " 기준이에요.</div>"));
     out.rows.forEach(function (h) { card(h, c.dept); });
+    if (out.unknownRows.length) {
+      el.log.appendChild(node('<div class="from-note jg-unknown-head">아래는 ' + esc(ct) +
+        " 정보가 공공데이터에 없어 확인하지 못한 곳이에요.</div>"));
+      out.unknownRows.forEach(function (h) { card(h, c.dept); });
+    }
+    emit("jg:results", { count: out.rows.length + out.unknownRows.length });
   }
 
   /* ── 열고 닫기 ── */
@@ -1227,8 +1260,13 @@
              + "가까운 병원은 어디인지 같이 찾아드릴게요.", "bot");
       // 마이크를 쓸 수 있는 브라우저에서만 안내한다
       if (SR) bubble("글자 대신 아래 마이크를 눌러 말씀하셔도 돼요.", "bot");
-      quick(["감기 걸린 것 같아요", "지금 문 연 병원",
-             "주말에도 하는 소아과", "서울 강남구 피부과"]);
+      // 밤·주말·공휴일이면 생활 기능이 그때에 맞는 버튼을 대신 보여준다
+      var 맞춤 = window.JGLife ? window.JGLife.welcome() : null;
+      if (!(맞춤 && 맞춤.items.length)) {
+        quick(["감기 걸린 것 같아요", "지금 문 연 병원",
+               "주말에도 하는 소아과", "서울 강남구 피부과"]);
+      }
+      emit("jg:open", { first: true });
     }
     setTimeout(function () { el.input.focus(); }, 60);
   }
@@ -1371,7 +1409,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202609281405")
+    pharmLoading = fetch("pharmacies.json?v=202610011555")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
@@ -1609,4 +1647,10 @@
       setTimeout(function () { el.assistant.classList.remove("peek"); }, 4200);
     }, 1400);
   }
+  // 생활 기능(life.js)이 쓰는 고리
+  window.JG = {
+    server: false, send: function (v) { ask(v); }, bubble: bubble, node: node,
+    quick: quick, log: el.log, mic: el.mic, input: el.input
+  };
+  emit("jg:ready", {});
 })();
