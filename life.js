@@ -175,7 +175,7 @@
   /* ── 3. 정기 진료일 등록 → 그날 열면 맨 위에 확인 카드 ────────── */
   function onCard(e) {
     var card = e.detail && e.detail.card, n = e.detail && e.detail.node;
-    if (!card || !n) return;
+    if (!card || !n || card.pharmacy) return;   // 약국 카드는 '두 번째' 목록용으로만 받는다
     // 정보 기준 시점 (서버가 as_of 를 주면 그 값, 없으면 데이터 출처)
     var asof = card.as_of || (JG().server ? "" : "심평원 전국 병의원 및 약국 현황(2026.6.) · 응급의료정보");
     if (asof) n.appendChild(JG().node('<div class="jg-asof">정보 기준 · ' + esc(asof) + '</div>'));
@@ -270,4 +270,205 @@
   window.JGLife = { welcome: welcome, today: function () { return today || localToday(); },
                     _setToday: function (t) { today = Object.assign(localToday(), t); } };   // 시험용
   if (window.JG) start(); else document.addEventListener("jg:ready", start, { once: true });
+})();
+
+/* ════════════════════════════════════════════════════════════
+   말 한마디로 바로 실행 — 음성 명령 해석 (2026-10-01 영훈 휴대폰 시험)
+
+   "두리 치과의원 대중교통" 이라고 말하면 되묻지 않고 네이버 지도 대중교통 길찾기를 연다.
+   "두 번째 병원 전화해 줘" 처럼 방금 보여준 목록의 순서로도 부를 수 있다.
+   여기서는 '무슨 일을, 어디에' 만 알아듣는다. 실제로 여는 일은 각 위젯이 한다.
+
+   JGCmd.parse(문장, 진료과목록) →
+     null  (명령이 아님 — 평소처럼 병원 찾기로 넘긴다)
+     { act: "route"|"call", mode: "transit"|"car"|"walk", app: "naver"|"kakao",
+       nth: 0부터 시작하는 순서 또는 null, name: "두리치과의원", pharmacy: true/false }
+   ════════════════════════════════════════════════════════════ */
+(function () {
+  "use strict";
+
+  var MODE_WORDS = [
+    ["transit", /대중\s*교통|버스|지하철|전철/],
+    ["car", /자동차|자가용|차로|차 타고|차타고|운전|택시/],
+    ["walk", /도보|걸어서|걸어|걷는|걸어가/]
+  ];
+  var ROUTE_WORDS = /길\s*찾기|길찾아|가는\s*길|가는\s*법|어떻게\s*가|길\s*안내|길\s*알려|네이버\s*지도|카카오\s*맵|카카오\s*지도|지도/;
+  var CALL_WORDS = /전화|통화/;
+  var NTH = [
+    [0, /(첫|1)\s*(번째|번)|첫\s*번|맨\s*위|제일\s*위|1\s*등/],
+    [1, /(두|2)\s*(번째|번)/],
+    [2, /(세|3)\s*(번째|번)/],
+    [3, /(네|4)\s*(번째|번)/],
+    [4, /(다섯|5)\s*(번째|번)/]
+  ];
+  // 이름을 뽑을 때 지우는 말 (할 일·꾸밈말·조사)
+  var FILLER = /갈\s*수\s*있는|갈\s*수|있는|할\s*수|대중\s*교통|버스|지하철|전철|자동차|자가용|차 타고|차타고|운전|택시|도보|걸어서|걸어가|걸어|걷는|길\s*찾기|길찾아|가는\s*길|가는\s*법|어떻게|길\s*안내|길\s*알려|네이버\s*지도|카카오\s*맵|카카오\s*지도|카카오|네이버|지도|전화|통화|연결|으로|까지|에서|로|가자|가줘|가 줘|갈래|가고\s*싶어|가는|가요|가$|알려\s*줘|알려\s*주세요|알려|보여\s*줘|열어\s*줘|열어|걸어\s*줘|해\s*줘|해\s*주세요|해봐|해|줘|주세요|좀|번호|바로|지금|빨리|[.,!?~]/g;
+  var GENERIC = /의원|병원|약국|한의원|치과|클리닉|의료원|센터|보건소|근처|가까운|가까이|주변|여기|제일|가장|거기|그곳|저기|아무|곳|데$/g;
+
+  function parse(text, depts) {
+    var t = String(text || "").trim();
+    if (!t || t.indexOf("__") === 0) return null;
+    var mode = null;
+    for (var i = 0; i < MODE_WORDS.length; i++) {
+      if (MODE_WORDS[i][1].test(t)) { mode = MODE_WORDS[i][0]; break; }
+    }
+    var call = CALL_WORDS.test(t);
+    var route = !!mode || ROUTE_WORDS.test(t);
+    if (!call && !route) return null;
+
+    var nth = null;
+    for (var j = 0; j < NTH.length; j++) {
+      if (NTH[j][1].test(t)) { nth = NTH[j][0]; break; }
+    }
+    var name = t;
+    NTH.forEach(function (n) { name = name.replace(n[1], " "); });
+    name = name.replace(FILLER, " ").replace(/\s+/g, "");
+    // 진료과·일반 낱말을 빼고도 한 글자 이상 남아야 '이름'으로 본다. ('신이비인후과' → '신')
+    // ("근처 이비인후과 대중교통" 은 이름이 아니라 병원 찾기다)
+    var core = name;
+    (depts || []).slice().sort(function (a, b) { return b.length - a.length; })
+      .forEach(function (d) { core = core.split(d).join(""); });
+    core = core.replace(GENERIC, "");
+    if (nth === null && core.length < 1) return null;
+    return {
+      act: call && !route ? "call" : "route",
+      mode: mode || "transit",
+      app: /카카오/.test(t) ? "kakao" : "naver",
+      nth: nth,
+      name: nth === null ? name : "",
+      pharmacy: /약국/.test(t)
+    };
+  }
+
+  // 이름 맞추기 점수 (작을수록 잘 맞음). 띄어쓰기는 무시한다.
+  function nameScore(placeName, q) {
+    var n = String(placeName || "").replace(/\s+/g, "");
+    if (!q || !n) return 99;
+    if (n === q) return 0;
+    var bare = function (s) { return s.replace(/(의원|병원|약국|한의원|치과의원|치과)$/, ""); };
+    if (bare(n) === bare(q)) return 1;
+    if (n.indexOf(q) === 0) return 2;
+    if (n.indexOf(q) >= 0) return 3;
+    if (bare(q).length >= 2 && n.indexOf(bare(q)) >= 0) return 4;
+    return 99;
+  }
+
+  var MODE_LABEL = { transit: "대중교통", car: "자동차", walk: "도보" };
+  // 서버판처럼 진료과 사전을 안 넘겨 주는 위젯을 위한 기본 목록
+  var DEFAULT_DEPTS = ["가정의학과", "내과", "소아청소년과", "이비인후과", "피부과", "안과",
+    "정형외과", "신경외과", "외과", "산부인과", "비뇨의학과", "정신건강의학과", "신경과",
+    "재활의학과", "마취통증의학과", "영상의학과", "치과", "한의원", "한방"];
+
+  /* 방금 화면에 그린 카드 목록 ("두 번째 병원" 을 알아듣기 위해).
+     카드가 1.5초 넘게 끊겼다가 다시 오면 새 목록으로 본다. */
+  var shown = [], lastCardAt = 0;
+  document.addEventListener("jg:card", function (e) {
+    var c = e.detail && e.detail.card;
+    if (!c || !c.name) return;
+    var now = Date.now();
+    if (now - lastCardAt > 1500) shown = [];
+    lastCardAt = now;
+    shown.push(c);
+  });
+
+  function naverUrl(mode, p, pos) {
+    var nm = encodeURIComponent(p.name || "목적지");
+    if (!p.lat || !p.lon) return "https://map.naver.com/p/search/" + nm;
+    var from = pos ? pos.lon + "," + pos.lat + "," + encodeURIComponent("내 위치") : "-";
+    return "https://map.naver.com/p/directions/" + from + "/" + p.lon + "," + p.lat + "," + nm + "/-/" + mode;
+  }
+  function kakaoUrl(p, pos) {
+    var nm = encodeURIComponent(p.name || "목적지");
+    if (!p.lat || !p.lon) return "https://map.kakao.com/?q=" + nm;
+    var to = nm + "," + p.lat + "," + p.lon;
+    if (!pos) return "https://map.kakao.com/link/to/" + to;
+    return "https://map.kakao.com/link/from/" + encodeURIComponent("내 위치") + "," +
+      pos.lat + "," + pos.lon + "/to/" + to;
+  }
+
+  // 실제로 연다. 지도·전화 앱으로 넘어가므로 열리지 않을 때를 대비해 누를 수 있는 단추도 남긴다.
+  function go(p, cmd, same) {
+    var JG = window.JG;
+    var url, 말;
+    if (cmd.act === "call") {
+      var tel = String(p.tel || "").replace(/[^0-9+]/g, "");
+      if (!tel) { JG.bubble(p.name + "은(는) 전화번호가 공개되어 있지 않아요.", "bot"); return; }
+      url = "tel:" + tel;
+      말 = p.name + "에 전화를 걸게요. (" + p.tel + ")";
+    } else {
+      var pos = JG.pos ? JG.pos() : null;
+      url = cmd.app === "kakao" ? kakaoUrl(p, pos) : naverUrl(cmd.mode, p, pos);
+      말 = p.name + "까지 " + (cmd.app === "kakao" ? "카카오맵 길찾기를" : MODE_LABEL[cmd.mode] + " 길찾기를 네이버 지도로") +
+        " 열게요." + (pos ? "" : " (출발지는 지도에서 정해 주세요)");
+    }
+    if (same > 1) 말 += " 같은 이름이 " + same + "곳이라 " + (JG.pos && JG.pos() ? "가장 가까운 곳" : "첫 번째 곳") + "으로 골랐어요.";
+    JG.bubble(말, "bot");
+    var 단추 = JG.node('<div class="jg-go"><a class="rbtn" rel="noopener" href="' +
+      url.replace(/"/g, "&quot;") + '">' + (cmd.act === "call" ? "📞 전화가 안 걸리면 눌러 주세요" : "🗺️ 지도가 안 열리면 눌러 주세요") + "</a></div>");
+    JG.log.appendChild(단추);
+    try { JG.log.scrollTop = JG.log.scrollHeight; } catch (e) {}
+    setTimeout(function () { window.location.href = url; }, 800);
+  }
+
+  /* 위젯이 부른다. 명령이면 true (위젯은 더 하지 않는다), 아니면 false.
+     fallback : 이름을 못 찾았는데 이름 같지도 않을 때 평소 병원 찾기로 넘기는 함수 */
+  function handle(text, fallback) {
+    var JG = window.JG;
+    if (!JG) return false;
+    var cmd = parse(text, JG.depts || DEFAULT_DEPTS);
+    if (!cmd) return false;
+    if (cmd.nth !== null) {
+      var p = shown[cmd.nth];
+      if (p) { go(p, cmd); return true; }
+      JG.bubble(shown.length ? "방금 보여드린 곳은 " + shown.length + "곳이에요. 몇 번째인지 다시 말씀해 주세요."
+                             : "먼저 병원을 찾아 볼게요. 예) 근처 치과, 감기 걸렸어", "bot");
+      return true;
+    }
+    // 1) 방금 보여준 카드에서 먼저 찾는다
+    var best = null, bs = 99;
+    shown.forEach(function (x) { var sc = nameScore(x.name, cmd.name); if (sc < bs) { bs = sc; best = x; } });
+    if (best && bs <= 4) { go(best, cmd); return true; }
+    // 2) 전국 자료에서 이름으로 찾는다 (위치를 알면 가장 가까운 곳)
+    if (!JG.findPlace) return false;
+    var 진행 = function () {
+      JG.findPlace(cmd.name, cmd.pharmacy, function (list) {
+        if (list && list.length) {
+          var 같은 = list.filter(function (x) { return x.name === list[0].name; }).length;
+          if (nameScore(list[0].name, cmd.name) > 1) {
+            JG.bubble("‘" + cmd.name + "’ 이름이 들어간 곳 중 " +
+                      (JG.pos && JG.pos() ? "가장 가까운 " : "") + "‘" + list[0].name + "’(으)로 찾았어요.", "bot");
+            같은 = 1;
+          }
+          go(list[0], cmd, 같은);
+          return;
+        }
+        if (/(의원|병원|약국|치과|한의원|센터)$/.test(cmd.name)) {
+          JG.bubble("‘" + cmd.name + "’을(를) 찾지 못했어요. 이름을 한 번만 다시 말씀해 주세요.", "bot");
+        } else if (fallback) { fallback(); }
+      });
+    };
+    if (JG.getPos) JG.getPos(진행); else 진행();
+    return true;
+  }
+
+  /* 화면에 뜬 버튼 글씨를 말로 읽으면 그 버튼을 누른 것과 같게 한다.
+     ("증상으로 찾기" 라고 말하면 __symptom__ 버튼) */
+  var lastQuick = [];
+  document.addEventListener("jg:quick", function (e) {
+    lastQuick = (e.detail && e.detail.items) || [];
+  });
+  function quickValue(text) {
+    var t = String(text || "").replace(/[\s.,!?~📍]/g, "");
+    if (!t) return null;
+    for (var i = 0; i < lastQuick.length; i++) {
+      var q = lastQuick[i] || {};
+      var l = String(q.label || "").replace(/[\s.,!?~📍]/g, "");
+      if (l && (t === l || t === l + "요" || t === l + "해줘" || t === l + "해주세요")) return q.value;
+    }
+    return null;
+  }
+
+  window.JGCmd = { parse: parse, nameScore: nameScore, modeLabel: MODE_LABEL, handle: handle,
+                   quickValue: quickValue,
+                   _shown: function () { return shown; } };
 })();

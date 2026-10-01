@@ -1125,8 +1125,16 @@
     quick(items);
   }
 
-  function ask(text, quiet) {
+  function ask(text, quiet, noCmd) {
     if (!text) return;
+
+    // 화면 버튼 글씨를 말로 읽었으면 그 버튼 값으로 바꾼다
+    var 버튼값 = window.JGCmd && JGCmd.quickValue(text);
+    if (버튼값 && 버튼값 !== text) text = 버튼값;
+
+    // "두리치과의원 대중교통" · "두 번째 병원 전화" 처럼 할 일을 말하면 되묻지 않고 바로 연다 (life.js)
+    if (!noCmd && window.JGCmd &&
+        JGCmd.handle(text, function () { ask(text, quiet, true); })) return;
 
     // '현재 위치로 찾기' 버튼
     if (text === "__HERE__") {
@@ -1505,7 +1513,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202610011707")
+    pharmLoading = fetch("pharmacies.json?v=202610011734")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
@@ -1626,6 +1634,8 @@
         c2.querySelector(".name").textContent = x.n;
         c2.querySelector(".addr").textContent = x.a;
         el.log.appendChild(c2);
+        emit("jg:card", { card: { name: x.n, tel: x.t, addr: x.a, lat: x.y, lon: x.x,
+                                  pharmacy: true }, node: c2 });
 
         var 상태 = x.al ? "24시간 운영이에요."
           : x.la ? "심야까지 운영이에요."
@@ -1764,9 +1774,43 @@
     }, 1400);
   }
   // 생활 기능(life.js)이 쓰는 고리
+  /* 이름으로 병원·약국 찾기 (음성 명령용). 위치를 알면 가까운 순, 최대 3곳 */
+  function findPlace(q, pharmacy, cb) {
+    var 찾기 = function (rows, 약국) {
+      var hit = [];
+      rows.forEach(function (h) {
+        var sc = JGCmd.nameScore(h.n, q);
+        if (sc < 99) hit.push({ h: h, sc: sc });
+      });
+      if (!hit.length) return [];
+      // 이름이 똑같아도 10km 넘게 멀면 가까운 '비슷한 이름'과 같은 순위로 본다 (서버 find_place 와 같은 규칙)
+      hit.forEach(function (x) {
+        x.km = myPos ? dist(myPos.lat, myPos.lon, x.h.y, x.h.x) : 0;
+        x.key = x.sc + (x.km > 10 ? 3 : 0);
+      });
+      hit.sort(function (a, b) { return (a.key - b.key) || (a.km - b.km); });
+      return hit.slice(0, 3).map(function (x) {
+        return { name: x.h.n, tel: x.h.t, addr: x.h.a, lat: x.h.y, lon: x.h.x, km: x.km, pharmacy: 약국 };
+      });
+    };
+    if (pharmacy) {
+      ensurePharm().then(function () { cb(찾기(PHARM, true)); })
+        .catch(function () { cb([]); });
+      return;
+    }
+    var got = 찾기(HOSP, false);
+    if (got.length) { cb(got); return; }
+    // 병원에 없으면 약국에서도 찾아 본다 ('온누리' 처럼 약국 이름만 말했을 때)
+    ensurePharm().then(function () { cb(찾기(PHARM, true)); }).catch(function () { cb([]); });
+  }
+
   window.JG = {
     server: false, send: function (v) { ask(v); }, bubble: bubble, node: node,
-    quick: quick, log: el.log, mic: el.mic, input: el.input
+    quick: quick, log: el.log, mic: el.mic, input: el.input,
+    depts: R.departments,
+    pos: function () { return myPos; },
+    getPos: function (cb) { askLocation(function () { cb(); }); },
+    findPlace: findPlace
   };
   emit("jg:ready", {});
 })();
