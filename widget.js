@@ -42,6 +42,7 @@
   var PHARM = window.__PHARM_DATA__ || [];
 
   var pending = "";
+  var lastRegion = null;    // 앞에서 말한 지역 (다음 질문에서 다시 묻지 않기)
   var lastCards = {};
 
   /* ── 지역 사전: 데이터에서 만든다 ── */
@@ -92,6 +93,8 @@
   function resolveRegion(flat) {
     var empty = { region: null, ambiguous: false, matched: "", candidates: [] };
     if (!FORMS || !flat) return empty;
+    // '병원주말' 안의 '원주' 처럼 흔한 낱말에 걸친 지역명을 잡지 않는다 (서버 region_index 와 같은 규칙)
+    flat = flat.replace(/병원|의원|요양원|학원/g, function (m) { return new Array(m.length + 1).join("□"); });
 
     var nicks = Object.keys(NICKMAP);
     for (var n = 0; n < nicks.length; n++) {
@@ -185,8 +188,12 @@
 
     var keys = Object.keys(A);
     for (var k = 0; k < keys.length; k++) {
-      if (t.indexOf(keys[k]) < 0) continue;
       var spec = A[keys[k]];
+      // '손목'·'발목' 안의 '목' 은 건너뛴다. 단 '거북목'처럼 단서가 있으면 본다 (서버와 같은 규칙)
+      var 단서 = Object.keys(spec.decide || {}).some(function (d) {
+        return spec.decide[d].some(function (cl) { return t.indexOf(cl) >= 0; });
+      });
+      if (!new RegExp("(^|[^가-힣])" + keys[k]).test(t) && !단서) continue;
       var decided = null;
       Object.keys(spec.decide || {}).forEach(function (dept) {
         if (decided) return;
@@ -196,7 +203,9 @@
         }
       });
       if (decided) return { dept: decided, ask: null };
-      return { dept: null, ask: spec };
+      // 2026-10-06 : 되묻지 않고 두 과를 함께 찾는다 (영훈 "질문을 해도 다시 되물어본다")
+      return { dept: null, ask: null, intro: spec.intro || null,
+               depts: (spec.options || []).map(function (o) { return o.dept; }) };
     }
 
     var best = null, bestLen = 0, bestWord = "";
@@ -212,7 +221,8 @@
     // '목감기'·'코감기'처럼 구체적인 말은 이비인후과.
     if (MULTI_DEPT[bestWord]) {
       if (/코감기|목감기/.test(t)) return { dept: "이비인후과", ask: null };
-      return { dept: null, depts: MULTI_DEPT[bestWord].slice(), ask: null };
+      return { dept: null, depts: MULTI_DEPT[bestWord].slice(), ask: null,
+               intro: "감기는 " + MULTI_DEPT[bestWord].join("·") + "에서 진료해요." };
     }
     return { dept: best, ask: null };
   }
@@ -245,6 +255,7 @@
       var got2 = matchSymptom(t);
       c.dept = got2.dept;
       c.depts = got2.depts || null;
+      c.altIntro = got2.intro || null;
       c.symptomChoice = got2.ask;
     }
 
@@ -263,8 +274,10 @@
     if (has(R.parking)) c.parking = true;
     if (has(R.specialist)) c.specialist = true;
     if (has(R.rating)) c.rating = true;
-    if (has(["일요일", "일욜", "주말", "공휴일", "휴일"])) c.sunday = true;
-    if (has(["토요일", "토욜", "주말"])) c.saturday = true;
+    // '주말'만 말하면 토·일 중 하루라도 여는 곳 (둘 다 여는 곳만 찾으면 거의 없다, 2026-10-06)
+    if (has(["주말"]) && !has(["일요일", "일욜", "토요일", "토욜"])) c.weekend = true;
+    if (has(["일요일", "일욜", "공휴일", "휴일"])) c.sunday = true;
+    if (has(["토요일", "토욜"])) c.saturday = true;
     if (has(["야간", "밤에", "새벽", "심야", "24시", "응급"])) c.night = true;
     if (has(["지금", "문 연", "문연", "여는", "열린", "열려",
              "오늘 진료", "오늘 하는", "당장", "바로"])) c.openNow = true;
@@ -368,7 +381,11 @@
     var skipped = [];
 
     if (c.region) res = filterRegion(res, c.region);
-    if (c.dept) res = res.filter(function (h) { return h.d.indexOf(c.dept) >= 0; });
+    // 치과의원은 진료과를 '치주과·교정과'처럼 세부로만 적어 '치과'가 목록에 없다 → 종별로도 본다 (2026-10-06)
+    if (c.dept) res = res.filter(function (h) {
+      if (c.dept === "치과" && DENTAL.indexOf(h.c) >= 0) return true;
+      return h.d.indexOf(c.dept) >= 0;
+    });
     if (!c.dept && c.depts) {
       res = res.filter(function (h) {
         // 이름에 과가 들어간 과를 먼저 고른다 ('참사랑가정의학과' 가 내과도 등록했으면 가정의학과로)
@@ -403,7 +420,8 @@
         // 서버판(availability.py)과 같은 규칙 : 시간이 적혀 있으면 진료, '휴진'이면 쉼,
         // 그 밖의 말(예: '응급실 진료')은 외래 진료 여부를 알 수 없으므로 미확인.
         // (2026-10-01 '응급실 진료'를 일요일 진료로 잘못 세던 것을 고침)
-        var s = String(h.sun || "").trim();
+        // 공유 묶음에는 sun 칸이 없고 요일별 시간(h.h["일"])에 들어 있다 (2026-10-06 확인)
+        var s = String(h.sun || (h.h && h.h["일"]) || "").trim();
         if (/^\d{1,2}:\d{2}\s*~\s*\d{1,2}:\d{2}$/.test(s)) return true;
         if (/^((전부|종일|매주|일요일|공휴일)?\s*(휴진|휴무)|진료\s*없음)$/.test(s)) return false;
         return null;
@@ -412,6 +430,28 @@
     if (c.saturday) {
       checks.push(["토요일 진료", function (h) {
         return hasHours(h) ? !!(h.h && h.h["토"]) : null;
+      }]);
+    }
+    if (c.night) {
+      // 평일 저녁 8시 이후까지 진료하는 곳 (서버 availability 와 같은 기준, 응급 병상은 서버판에서만)
+      checks.push(["야간 진료", function (h) {
+        if (!hasHours(h)) return null;
+        var late = ["월", "화", "수", "목", "금"].some(function (d) {
+          var t = h.h[d];
+          if (!t || t.indexOf("~") < 0) return false;
+          var e = t.split("~")[1].split(":");
+          return (+e[0] * 60 + +e[1]) >= 20 * 60;
+        });
+        return late;
+      }]);
+    }
+    if (c.weekend) {
+      checks.push(["주말 진료", function (h) {
+        var 토 = hasHours(h) ? !!(h.h && h.h["토"]) : null;
+        var s = String(h.sun || (h.h && h.h["일"]) || "").trim();
+        var 일 = /^\d{1,2}:\d{2}\s*~\s*\d{1,2}:\d{2}$/.test(s) ? true
+          : /^((전부|종일|매주|일요일|공휴일)?\s*(휴진|휴무)|진료\s*없음)$/.test(s) ? false : null;
+        return (토 === true || 일 === true) ? true : (토 === false && 일 === false) ? false : null;
       }]);
     }
     if (c.openNow) {
@@ -432,7 +472,7 @@
         return found;
       }]);
     }
-    if (c.night) skipped.push("야간 응급(공유본에서는 조회 불가)");
+
     if (c.rating) skipped.push("이용자 별점(공개 데이터에 없음)");
 
     var confirmed = 0, unconfirmed = 0;
@@ -856,7 +896,7 @@
         // 말로 물었다고 자동으로 읽어 주지는 않는다.
         // 2026-09-15 휴대폰에서 들어 본 결과 기계 목소리가 깨져 들려
         // 오히려 방해가 됐다. 원하는 사람만 위쪽 스피커 단추로 켠다.
-        bubble(말한것, "me");
+        // ask() 가 내 말풍선을 그린다. 여기서도 그리면 파란 말풍선이 두 번 나온다(2026-10-06 수정).
         ask(말한것);
       } else if (el.voiceBar && !el.voiceBar.hidden &&
                  el.voiceMsg.textContent.indexOf("듣고 있어요") === 0) {
@@ -915,7 +955,14 @@
   }
   function scroll() { el.log.scrollTop = el.log.scrollHeight; }
 
+  var lastMe = { text: "", at: 0 };
   function bubble(text, who) {
+    // 안전장치 : 같은 내 말이 2초 안에 또 그려지면 한 번만 보인다
+    if (who === "me") {
+      var now = Date.now();
+      if (text === lastMe.text && now - lastMe.at < 2000) return;
+      lastMe = { text: text, at: now };
+    }
     var r = node('<div class="row ' + who + '"><div class="bubble"></div></div>');
     r.querySelector(".bubble").textContent = text;
     el.log.appendChild(r); scroll();
@@ -1190,8 +1237,21 @@
     // 같은 질문만 반복하게 된다.
     if (text && merged !== text) {
       var fresh = extract(text);
+      // 진료과와 자기 조건(요일·시간·주차)을 다 갖춘 새 질문이면 이전 말을 섞지 않는다 (2026-10-06)
+      if ((fresh.dept || fresh.depts) && (fresh.sunday || fresh.saturday || fresh.weekend ||
+          fresh.night || fresh.openNow || fresh.openUntil || fresh.parking)) {
+        var 지역 = c.region;
+        c = fresh; merged = text;
+        if (!c.region && 지역) c.region = 지역;
+      }
       if (fresh.dept) {
         c.dept = fresh.dept;
+        c.depts = null;
+        c.symptomChoice = null;
+      } else if (fresh.depts) {
+        c.dept = null;
+        c.depts = fresh.depts;
+        c.altIntro = fresh.altIntro;
         c.symptomChoice = null;
       } else if (fresh.symptomChoice) {
         c.symptomChoice = fresh.symptomChoice;
@@ -1272,7 +1332,10 @@
     }
 
     // 지역을 말하지 않았으면 현재 위치로 찾는다 (2026-10-01 영훈 지적: "가까운 데"인데 지역을 되물었다)
-    if (!c.region && (c.dept || c.depts || c.nearMe)) {
+    // 앞에서 말한 지역은 이어 쓴다 (다시 묻지 않기)
+    if (!c.region && lastRegion && !c.nearMe) c.region = lastRegion;
+    // 지역을 말하지 않으면 무엇을 묻든 현재 위치부터 (2026-10-06 : "지금 문 연 병원"도 지역을 물었다)
+    if (!c.region) {
       if (myPos) {
         c.here = myPos;
       } else if (navigator.geolocation && !locDenied) {
@@ -1299,7 +1362,7 @@
       regionQuestion(c, merged);
       return;
     }
-    if (!c.dept && !c.depts && !(c.sunday || c.saturday || c.night || c.openNow
+    if (!c.dept && !c.depts && !c.here && !(c.sunday || c.saturday || c.weekend || c.night || c.openNow
                      || c.openUntil || c.parking)) {
       pending = merged;
       bubble("어디가 불편하신지, 또는 진료과를 알려주세요.", "bot");
@@ -1311,10 +1374,12 @@
 
     var out = search(c);
     pending = "";
+    if (c.region) lastRegion = c.region;
     var 장소 = c.region || "현재 위치 근처";
-    var 무엇 = c.dept || (c.depts ? "감기 진료 병원" : "병원");
+    var 무엇 = c.dept || (c.depts ? c.depts.join("·") : "병원");
     if (c.depts && !c.dept) {
-      bubble("감기는 " + c.depts.join("·") + "에서 진료해요. 가까운 전문 의원부터 보여드릴게요.", "bot");
+      bubble((c.altIntro || (c.depts.join("·") + "에서 진료해요.")) +
+             (/보여드릴게요/.test(c.altIntro || "") ? "" : " 가까운 전문 의원부터 보여드릴게요."), "bot");
     }
     if (!out.rows.length && !out.unknownRows.length) {
       bubble(장소 + " " + 무엇 +
@@ -1513,7 +1578,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202610011734")
+    pharmLoading = fetch("pharmacies.json?v=202610060942")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
