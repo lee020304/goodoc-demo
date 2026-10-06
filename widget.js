@@ -1154,9 +1154,44 @@
 
   // 현재 위치를 받아 온다. 허용하면 cb(true), 거부·실패하면 cb(false)
   var locDenied = false;
+  /* ── 위치 미리 받아 두기 (2026-10-06 영훈 "위치를 말 안 해도 바로 검색되게") ──
+     상담 창을 여는 순간 위치를 받아 두고, 움직이면 따라 갱신한다(watchPosition).
+     이미 허용한 사람은 아무것도 묻지 않고, 처음인 사람만 브라우저 허용 창이 한 번 뜬다.
+     위치는 이 화면의 메모리에만 두고 저장하거나 보내지 않는다(공유판은 서버가 없다). */
+  var watching = false, permState = "unknown";
+  function warmLocation() {
+    if (watching || locDenied || !navigator.geolocation) return;
+    watching = true;
+    navigator.geolocation.watchPosition(function (pos) {
+      var first = !myPos;
+      myPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+      if (first) refreshRoutes();
+    }, function (e) {
+      if (e && e.code === 1) { locDenied = true; watching = false; }
+    }, { maximumAge: 60000, timeout: 15000 });
+  }
+  try {
+    navigator.permissions.query({ name: "geolocation" }).then(function (st) {
+      permState = st.state;
+      if (st.state === "granted") warmLocation();      // 이미 허용 → 바로 조용히 받는다
+      if (st.state === "denied") locDenied = true;
+      st.onchange = function () { permState = st.state; if (st.state === "denied") locDenied = true; };
+    }).catch(function () {});
+  } catch (e) {}
+
   function askLocation(cb) {
     if (myPos) { cb(true); return; }
     if (!navigator.geolocation || locDenied) { cb(false); return; }
+    // 이미 받는 중이면 새로 묻지 않고 도착을 기다린다 (최대 10초)
+    if (watching) {
+      var 시작 = Date.now();
+      (function 기다리기() {
+        if (myPos) { cb(true); return; }
+        if (locDenied || Date.now() - 시작 > 10000) { cb(false); return; }
+        setTimeout(기다리기, 200);
+      })();
+      return;
+    }
     navigator.geolocation.getCurrentPosition(function (pos) {
       myPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
       refreshRoutes();
@@ -1340,7 +1375,8 @@
         c.here = myPos;
       } else if (navigator.geolocation && !locDenied) {
         pending = merged;
-        bubble("지금 계신 곳에서 가까운 곳을 찾을게요. 위치 사용을 허용해 주세요.", "bot");
+        // 이미 허용한 사람에게는 허용해 달라고 하지 않는다
+        if (permState !== "granted") bubble("지금 계신 곳에서 가까운 곳을 찾을게요. 위치 사용을 허용해 주세요.", "bot");
         askLocation(function (ok) {
           var m = pending; pending = "";
           if (ok) { ask(m, true); }
@@ -1420,6 +1456,7 @@
 
   /* ── 열고 닫기 ── */
   function open() {
+    warmLocation();          // 창을 여는 순간 위치를 미리 받아 둔다
     el.panel.hidden = false;
     document.body.classList.add("panel-open");
     if (el.assistant) el.assistant.hidden = true;
@@ -1427,6 +1464,10 @@
       bubble("안녕하세요. 어디가 불편하세요?", "bot");
       bubble("증상을 말씀해주시면 어떤 진료과를 가야 하는지, "
              + "가까운 병원은 어디인지 같이 찾아드릴게요.", "bot");
+      // 창을 열 때 위치를 받으므로 그 사실을 알린다 (개인정보 고지)
+      if (navigator.geolocation) {
+        bubble("지역을 말하지 않으면 지금 계신 곳 기준으로 찾아요. 위치는 저장하지 않아요.", "bot");
+      }
       // 마이크를 쓸 수 있는 브라우저에서만 안내한다
       if (SR) bubble("글자 대신 아래 마이크를 눌러 말씀하셔도 돼요.", "bot");
       // 밤·주말·공휴일이면 생활 기능이 그때에 맞는 버튼을 대신 보여준다
@@ -1578,7 +1619,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202610060942")
+    pharmLoading = fetch("pharmacies.json?v=202610061146")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
