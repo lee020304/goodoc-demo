@@ -921,7 +921,9 @@
     if (window.JGSay) JGSay.stop();
     var 앞회차 = voice.rec;
     voice.rec = null;                                       // 앞 회차 신호는 이제부터 무시된다
-    try { 앞회차 && 앞회차.abort(); } catch (e) {}          // 앞 회차가 남아 있으면 정리
+    // 앞 회차가 아직 듣는 중일 때만 끈다. 이미 끝난 회차까지 abort 하면 안드로이드에서
+    // 방금 시작한 새 회차까지 꺼질 수 있다 (2026-10-07 휴대폰에서 아예 인식이 안 되던 일)
+    if (앞회차 && voice.listening) { try { 앞회차.abort(); } catch (e) {} }
     voice.시작시각 = Date.now();
     voice.listening = false;
     voice.lastFinal = "";
@@ -1763,7 +1765,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202610071417")
+    pharmLoading = fetch("pharmacies.json?v=202610071422")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
