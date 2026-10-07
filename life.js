@@ -470,6 +470,18 @@
     var 토글 = document.getElementById("speak-toggle");
     if (JG.server && window.JGSay && 토글 && 토글.getAttribute("aria-pressed") === "true") JGSay.speak(말);
   }
+  // 받침에 맞는 조사 ("소문란정형외과를", "중앙신경과의원을", "…과와/…원과", "…으로/…로")
+  function 받침(이름) {
+    var t = String(이름 || ""), c = t.charCodeAt(t.length - 1);
+    return c >= 0xac00 && c <= 0xd7a3 && (c - 0xac00) % 28 !== 0;
+  }
+  function 을를(이름) { return 이름 + (받침(이름) ? "을" : "를"); }
+  function 과와(이름) { return 이름 + (받침(이름) ? "과" : "와"); }
+  function 으로(이름) {
+    var t = String(이름 || ""), c = t.charCodeAt(t.length - 1);
+    var ㄹ받침 = c >= 0xac00 && c <= 0xd7a3 && (c - 0xac00) % 28 === 8;
+    return 이름 + (받침(이름) && !ㄹ받침 ? "으로" : "로");
+  }
   function 은는(이름) {
     var c = String(이름 || "").charCodeAt(String(이름 || "").length - 1);
     return (c >= 0xac00 && c <= 0xd7a3 && (c - 0xac00) % 28 !== 0) ? "은" : "는";
@@ -581,37 +593,74 @@
     if (best && bs <= 4) { go(best, cmd); return true; }
     // 2) 전국 자료에서 이름으로 찾는다 (위치를 알면 가장 가까운 곳)
     if (!JG.findPlace) return false;
-    var 진행 = function (이름, 남은) {
-      JG.findPlace(이름, cmd.pharmacy, function (list) {
-        if ((!list || !list.length) && 남은 > 0 && 이름.length > 4) { 진행(이름.slice(1), 남은 - 1); return; }
+    var 진행 = function () {
+      JG.findPlace(cmd.name, cmd.pharmacy, function (list) {
         if (list && list.length) {
-          var 같은 = list.filter(function (x) { return x.name === list[0].name; }).length;
-          if (nameScore(list[0].name, cmd.name) > 1) {
+          var 첫 = list[0];
+          // 발음이 비슷해서 찾은 곳 (받아쓰기가 이름을 조금 틀렸을 때 : 비염·어르신 발음, 2026-10-07)
+          if (첫.fuzzy) {
+            var 둘째 = list[1];
+            var 확실 = 첫.fuzzy >= 0.9 && (!둘째 || 둘째.fuzzy < 첫.fuzzy - 0.05);
+            if (확실) {
+              대답("‘" + cmd.name + "’" + 을를(cmd.name).slice(cmd.name.length) + " ‘" + 첫.name + "’" +
+                   으로(첫.name).slice(첫.name.length) + " 알아들었어요.");
+              go(첫, cmd, 1);
+              return;
+            }
+            대답("‘" + cmd.name + "’" + 과와(cmd.name).slice(cmd.name.length) + " 이름이 비슷한 곳이에요. 맞는 곳을 말씀하시거나 눌러 주세요. 예) 첫 번째");
+            var 할말 = cmd.act === "call" ? " 전화" : cmd.app === "kakao" ? " 카카오맵" :
+              " " + (MODE_LABEL[cmd.mode] || "대중교통");
+            JG.quick(list.slice(0, 3).map(function (x, i) {
+              return { label: (i + 1) + ". " + x.name + (x.km != null ? " (" + x.km + "km)" : ""),
+                       value: x.name + 할말 };
+            }));
+            return;
+          }
+          var 같은 = list.filter(function (x) { return x.name === 첫.name; }).length;
+          if (nameScore(첫.name, cmd.name) > 1) {
             JG.bubble("‘" + cmd.name + "’ 이름이 들어간 곳 중 " +
-                      (JG.pos && JG.pos() ? "가장 가까운 " : "") + "‘" + list[0].name + "’(으)로 찾았어요.", "bot");
+                      (JG.pos && JG.pos() ? "가장 가까운 " : "") + "‘" + 첫.name + "’(으)로 찾았어요.", "bot");
             같은 = 1;
           }
-          go(list[0], cmd, 같은);
+          go(첫, cmd, 같은);
           return;
         }
-        if (/(의원|병원|약국|치과|한의원|센터)$/.test(cmd.name)) {
-          JG.bubble("‘" + cmd.name + "’을(를) 찾지 못했어요. 이름을 한 번만 다시 말씀해 주세요.", "bot");
+        // 이름 같은 말인데 못 찾았으면 아무 곳이나 고르지 않고 다시 물어본다
+        if (/(의원|병원|약국|치과|한의원|센터|과)$/.test(cmd.name)) {
+          대답("‘" + cmd.name + "’" + 을를(cmd.name).slice(cmd.name.length) + " 찾지 못했어요. 병원 이름을 한 번만 천천히 다시 말씀해 주세요.");
         } else if (fallback) { fallback(); }
       });
     };
-    if (JG.getPos) JG.getPos(function () { 진행(cmd.name, 3); }); else 진행(cmd.name, 3);
+    if (JG.getPos) JG.getPos(진행); else 진행();
     return true;
   }
 
   /* 화면에 뜬 버튼 글씨를 말로 읽으면 그 버튼을 누른 것과 같게 한다.
      ("증상으로 찾기" 라고 말하면 __symptom__ 버튼) */
   var lastQuick = [];
+  var 버튼시각 = 0;
   document.addEventListener("jg:quick", function (e) {
     lastQuick = (e.detail && e.detail.items) || [];
+    버튼시각 = Date.now();
   });
   function quickValue(text) {
     var t = String(text || "").replace(/[\s.,!?~📍]/g, "");
     if (!t) return null;
+    // "네"·"맞아요"·"아니요" 만 말하면 '네…'·'아니…' 로 시작하는 버튼 (방금 버튼이 떴을 때만)
+    if (lastQuick.length && Date.now() - 버튼시각 < 120000) {
+      var 예 = /^(네|예|응|어|맞아|맞아요|맞습니다|그래|그래요|좋아|좋아요|네네|넵|그거|그거요)$/.test(t);
+      var 아니 = /^(아니|아니요|아뇨|아니야|틀려|틀렸어|아니에요)$/.test(t);
+      for (var y = 0; y < lastQuick.length && (예 || 아니); y++) {
+        var 이름 = String((lastQuick[y] || {}).label || "");
+        if ((예 && /^(네|예)/.test(이름)) || (아니 && /^아니/.test(이름))) return lastQuick[y].value;
+      }
+    }
+    // "첫 번째", "두 번째 거", "2번" 처럼 짧게 순서만 말하면 그 순서의 버튼 (방금 버튼이 떴을 때만)
+    if (lastQuick.length && t.length <= 8 && Date.now() - 버튼시각 < 120000) {
+      for (var k = 0; k < NTH.length; k++) {
+        if (NTH[k][1].test(text) && lastQuick[NTH[k][0]]) return lastQuick[NTH[k][0]].value;
+      }
+    }
     for (var i = 0; i < lastQuick.length; i++) {
       var q = lastQuick[i] || {};
       var l = String(q.label || "").replace(/[\s.,!?~📍]/g, "");
@@ -905,4 +954,66 @@
     else last.parentNode.appendChild(note);
   }
   window.JGOrder = { mark: mark };
+})();
+
+
+/* ════════════════════════════════════════════════════════════
+   발음이 비슷한 이름 (2026-10-07 비염·어르신 발음) — 서버 src/chains/fuzzy_name.py 와 같은 규칙
+   ════════════════════════════════════════════════════════════ */
+(function () {
+  "use strict";
+  var 초 = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ", 중 = "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ";
+  var 종 = ["", "ㄱ", "ㄲ", "ㄳ", "ㄴ", "ㄵ", "ㄶ", "ㄷ", "ㄹ", "ㄺ", "ㄻ", "ㄼ", "ㄽ", "ㄾ", "ㄿ", "ㅀ", "ㅁ", "ㅂ", "ㅄ", "ㅅ", "ㅆ", "ㅇ", "ㅈ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ"];
+  var 무리 = {};
+  function 표(무리들, 위치) { 무리들.forEach(function (g, i) { (g ? g.split("") : [""]).forEach(function (c) { 무리[위치 + c] = i; }); }); }
+  표(["ㄱㄲㅋ", "ㄴㄷㄸㅌ", "ㅁㅂㅃㅍ", "ㅅㅆ", "ㅈㅉㅊ", "ㄹ", "ㅇ", "ㅎ"], "초");
+  표(["ㅐㅔㅒㅖ", "ㅓㅗ", "ㅡㅜ", "ㅢㅣ", "ㅚㅙㅞ", "ㅏ", "ㅑ", "ㅕ", "ㅛ", "ㅠ", "ㅘ", "ㅝ", "ㅟ"], "중");
+  표(["ㄴㅁㅇㄵㄶ", "ㄱㄲㅋㄳㄺ", "ㄷㅅㅆㅈㅊㅌㅎ", "ㅂㅍㅄㄿ", "ㄹㄻㄼㄽㄾㅀ", ""], "종");
+  var 가까움 = {};
+  [["ㅅ","ㄷ"],["ㅅ","ㅌ"],["ㅅ","ㅈ"],["ㅆ","ㄸ"],["ㅈ","ㄷ"],["ㅊ","ㅌ"],["ㅎ","ㅇ"],["ㄹ","ㄴ"],
+   ["ㅏ","ㅓ"],["ㅗ","ㅜ"],["ㅕ","ㅛ"],["ㅡ","ㅓ"],["ㅑ","ㅕ"]].forEach(function (p) {
+    가까움[p[0] + p[1]] = 가까움[p[1] + p[0]] = true; });
+  function 조각(t) {
+    var out = [], s = String(t || "").replace(/\s+/g, "");
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charCodeAt(i) - 0xac00;
+      if (c >= 0 && c < 11172) out.push(["초", 초[Math.floor(c / 588)]], ["중", 중[Math.floor((c % 588) / 28)]], ["종", 종[c % 28]]);
+      else out.push(["기타", s[i]]);
+    }
+    return out;
+  }
+  function 비용(a, b) {
+    if (a[0] === b[0] && a[1] === b[1]) return 0;
+    if (a[0] === b[0] && a[0] !== "기타" && 무리[a[0] + a[1]] !== undefined && 무리[a[0] + a[1]] === 무리[b[0] + b[1]]) return 0.25;
+    if (a[0] === b[0] && 가까움[a[1] + b[1]]) return 0.5;
+    return 1;
+  }
+  function 거리(a, b) {
+    var x = 조각(a), y = 조각(b);
+    if (!x.length || !y.length) return Math.max(x.length, y.length);
+    var prev = [], j;
+    for (j = 0; j <= y.length; j++) prev.push(j);
+    for (var i = 1; i <= x.length; i++) {
+      var cur = [i];
+      for (j = 1; j <= y.length; j++) {
+        var 지움 = x[i - 1][0] === "종" ? 0.5 : 1, 넣음 = y[j - 1][0] === "종" ? 0.5 : 1;
+        cur.push(Math.min(prev[j] + 지움, cur[j - 1] + 넣음, prev[j - 1] + 비용(x[i - 1], y[j - 1])));
+      }
+      prev = cur;
+    }
+    return prev[y.length];
+  }
+  function 닮음(a, b) {
+    var n = Math.max(조각(a).length, 조각(b).length, 1);
+    return Math.max(0, 1 - 거리(a, b) / n);
+  }
+  var 끝말 = /(치과의원|한의원|의원|병원|약국|의료원|클리닉|센터)$/;
+  function 몸통(name, 과들) {
+    var n = String(name || "").replace(/\s+/g, "").replace(끝말, "");
+    for (var i = 0; i < 과들.length; i++) {
+      if (n.length > 과들[i].length && n.slice(-과들[i].length) === 과들[i]) return [n.slice(0, -과들[i].length), 과들[i]];
+    }
+    return [n, ""];
+  }
+  window.JGFuzzy = { 닮음: 닮음, 몸통: 몸통 };
 })();

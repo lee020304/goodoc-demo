@@ -1650,6 +1650,12 @@
     if (!c.dept && !c.depts && !c.region && !(c.sunday || c.saturday || c.weekend || c.night ||
         c.openNow || c.openUntil || c.parking || c.specialist)) {
       pending = "";
+      var 고친말 = 비슷한증상말(text);
+      if (고친말) {
+        bubble("혹시 ‘" + 고친말 + "’라는 말씀이세요?", "bot");
+        quick([{ label: "네, 맞아요", value: 고친말 }, { label: "아니요", value: "__symptom__" }]);
+        return;
+      }
       bubble("잘 못 알아들었어요. 어디가 아픈지 한 번만 다시 말씀해 주세요. "
              + "예를 들면 ‘목이 아파요’, ‘애가 열나요’처럼요.", "bot");
       quick((R.commonSymptoms || []).map(function (x) { return { label: x, value: x }; }));
@@ -1921,7 +1927,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202610071641")
+    pharmLoading = fetch("pharmacies.json?v=202610071707")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
@@ -2200,6 +2206,60 @@
   }
   // 생활 기능(life.js)이 쓰는 고리
   /* 이름으로 병원·약국 찾기 (음성 명령용). 위치를 알면 가까운 순, 최대 3곳 */
+  function 비슷한곳(rows, q) {
+    if (!window.JGFuzzy) return [];
+    var 과들 = (R.departments || []).concat(["소아과", "비뇨기과", "치과", "한의원"])
+      .sort(function (a, b) { return b.length - a.length; });
+    var 나 = JGFuzzy.몸통(q, 과들), 몸 = 나[0], 과 = 나[1];
+    if (몸.length < 2) return [];                 // 진료과만 남으면 이름이 아니다
+    var out = [];
+    rows.forEach(function (h) {
+      if (과 && h.n.indexOf(과) < 0) return;
+      var km = myPos ? dist(myPos.lat, myPos.lon, h.y, h.x) : null;
+      if (myPos && km > 30) return;
+      var 몸2 = JGFuzzy.몸통(h.n, 과들)[0];
+      if (Math.abs(몸2.length - 몸.length) > 2) return;
+      var 점수 = JGFuzzy.닮음(몸, 몸2);
+      if (점수 >= 0.75) out.push({ name: h.n, tel: h.t, addr: h.a, lat: h.y, lon: h.x,
+                                 km: km == null ? null : Math.round(km * 100) / 100, fuzzy: Math.round(점수 * 100) / 100 });
+    });
+    out.sort(function (a, b) { return (b.fuzzy - a.fuzzy) || ((a.km || 9e9) - (b.km || 9e9)); });
+    return out.slice(0, 3);
+  }
+
+  // 알아듣지 못한 말에서 발음이 비슷한 증상·부위 낱말을 찾아 고친 문장 (서버 dialog.비슷한증상말 과 같은 규칙)
+  var 조사꼬리 = /(이가|가|이|은|는|을|를|도|에|이랑|랑|쪽이|쪽)$/;
+  var 증상낱말 = null;
+  function 비슷한증상말(text) {
+    if (!window.JGFuzzy) return null;
+    if (!증상낱말) {
+      var 모음 = {};
+      Object.keys(R.symptoms || {}).forEach(function (d) {
+        (R.symptoms[d] || []).forEach(function (w) { if (w.length >= 2 && w.indexOf(" ") < 0) 모음[w.replace(조사꼬리, "") || w] = 1; });
+      });
+      (R.bodyParts || []).forEach(function (w) { if (w.length >= 2) 모음[w] = 1; });
+      증상낱말 = Object.keys(모음);
+    }
+    var 아픈말 = /아파|아프|아픈|쑤시|쑤셔|저려|저리|결려|가려|부었|부어|심해|불편|다쳤|삐었|시려|따가워|따가운|따갑|따끔|붓기|났어|안 멈|어지러/.test(text);
+    var 기준 = 아픈말 ? 0.75 : 0.9;
+    var 조각 = String(text || "").replace(/[.?!~,]+/g, " ").trim().split(/\s+/);
+    for (var i = 0; i < 조각.length; i++) {
+      var 몸 = 조각[i].replace(조사꼬리, "");
+      if (몸.length < 2 || 증상낱말.indexOf(몸) >= 0) continue;
+      var 최고 = 0, 낱말 = "";
+      증상낱말.forEach(function (w) {
+        if (Math.abs(w.length - 몸.length) > 1) return;
+        var 점 = JGFuzzy.닮음(몸, w);
+        if (점 > 최고) { 최고 = 점; 낱말 = w; }
+      });
+      if (최고 < 기준) continue;
+      var 새 = 조각.slice(); 새[i] = 낱말 + 조각[i].slice(몸.length);
+      var 고친 = 새.join(" "), m = matchSymptom(고친);
+      if (m.dept || m.depts) return 고친;
+    }
+    return null;
+  }
+
   function findPlace(q, pharmacy, cb) {
     var 찾기 = function (rows, 약국) {
       var hit = [];
@@ -2225,6 +2285,9 @@
     }
     var got = 찾기(HOSP, false);
     if (got.length) { cb(got); return; }
+    // 발음이 비슷한 곳 (받아쓰기가 이름을 조금 틀렸을 때) — 서버 find_place 와 같은 규칙
+    var 비슷 = 비슷한곳(HOSP, q);
+    if (비슷.length) { cb(비슷); return; }
     // 병원에 없으면 약국에서도 찾아 본다 ('온누리' 처럼 약국 이름만 말했을 때)
     ensurePharm().then(function () { cb(찾기(PHARM, true)); }).catch(function () { cb([]); });
   }
