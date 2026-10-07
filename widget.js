@@ -854,8 +854,20 @@
   }
 
   function stopListen() {
-    if (voice.rec && voice.listening) { try { voice.rec.stop(); } catch (e) {} }
+    var r = voice.rec;
+    if (r && voice.listening) {
+      try { r.stop(); } catch (e) {}
+      // 휴대폰에서 '끝' 신호가 안 오면 '듣는 중' 상태가 남아 두 번째부터 마이크가 먹통이 됐다.
+      // 1.5초 안에 끝 신호가 없으면 우리가 직접 끝낸다 (들은 말은 그대로 보낸다) (2026-10-07)
+      setTimeout(function () {
+        if (voice.rec === r && voice.listening && r.onend) {
+          try { r.abort(); } catch (e) {}
+          r.onend();
+        }
+      }, 1500);
+    }
   }
+
 
   /* 마이크가 실제로 꽂혀 있는지 먼저 본다.
      2026-09-15 확인 — 마이크가 없는 컴퓨터에서 음성인식을 시작하면
@@ -878,17 +890,22 @@
     "이 기기에 마이크가 없어요. 마이크 달린 이어폰을 꽂거나 휴대폰에서 열어 주세요";
 
   function startListen() {
-    if (!SR || voice.listening) return;
+    if (!SR) return;
+    // 듣는 상태가 12초 넘게 남아 있으면 걸린 것으로 보고 풀어 준다 (휴대폰에서 끝 신호가 안 오는 일)
+    if (voice.listening) {
+      if (Date.now() - (voice.시작시각 || 0) < 12000) return;
+      var 걸린것 = voice.rec; voice.rec = null;
+      try { 걸린것 && 걸린것.abort(); } catch (e) {}
+      voice.listening = false;
+      if (el.mic) el.mic.classList.remove("listening");
+    }
     stopSpeaking();
-    마이크확인(function (있나) {
-      if (있나 === false) {
-        voiceBar(true, 마이크없음안내);
-        setTimeout(function () { voiceBar(false); }, 5200);
-        return;
-      }
-      듣기시작();
-    });
+    // 누른 그 순간에 바로 시작한다. 휴대폰 크롬은 사람이 누른 직후에만 마이크를 허락하는 일이 있어
+    // 예전처럼 '마이크가 꽂혀 있나'를 먼저 묻고(기다림) 시작하면 두 번째부터 막힐 수 있다 (2026-10-07).
+    // 마이크가 없는지는 실패했을 때(onerror) 확인한다.
+    듣기시작();
   }
+
 
   // 앞 말과 겹치면 하나만 남긴다 ("머리" + "머리 아파" → "머리 아파", "머리 아파" + "머리 아파" → "머리 아파")
   function 겹침없이(앞, 새) {
@@ -902,6 +919,12 @@
   function 듣기시작() {
     // 앱이 읽어 주는 소리를 다시 받아쓰지 않게, 들을 때는 읽기를 멈춘다
     if (window.JGSay) JGSay.stop();
+    var 앞회차 = voice.rec;
+    voice.rec = null;                                       // 앞 회차 신호는 이제부터 무시된다
+    try { 앞회차 && 앞회차.abort(); } catch (e) {}          // 앞 회차가 남아 있으면 정리
+    voice.시작시각 = Date.now();
+    voice.listening = false;
+    voice.lastFinal = "";
     var rec = new SR();
     voice.rec = rec;
     rec.lang = "ko-KR";
@@ -923,6 +946,7 @@
     }
 
     rec.onstart = function () {
+      if (voice.rec !== rec) return;            // 지난 회차의 신호는 무시 (2026-10-07)
       clearTimeout(voice.끊김타이머);
       voice.끊김타이머 = setTimeout(function () {
         if (voice.listening) stopListen();
@@ -932,6 +956,7 @@
       voiceBar(true, "듣고 있어요. 말씀해 주세요");
     };
     rec.onresult = function (e) {
+      if (voice.rec !== rec) return;            // 지난 회차의 신호는 무시 (2026-10-07)
       // 결과를 이어 붙이지 않고 매번 처음부터 다시 정리한다.
       // 휴대폰 크롬은 앞서 들은 말을 다시 보내는 일이 있어, 이어 붙이면
       // "머리 아파머리 아파머리 아파" 처럼 되어 못 알아들었다 (2026-10-07)
@@ -950,6 +975,7 @@
       }
     };
     rec.onerror = function (e) {
+      if (voice.rec !== rec) return;            // 지난 회차의 신호는 무시 (2026-10-07)
       var 말 = "소리를 알아듣지 못했어요. 다시 한 번 말씀해 주세요";
       if (e.error === "not-allowed" || e.error === "service-not-allowed") {
         // 권한을 막은 것인지, 마이크가 아예 없는 것인지 나눠서 알려준다
@@ -972,6 +998,10 @@
       } else { voiceBar(false); }
     };
     rec.onend = function () {
+      // 지난 회차의 '끝' 신호(새 회차를 시작하며 정리할 때 늦게 오는 것)는 무시하고,
+      // 한 회차의 말은 딱 한 번만 보낸다. 같은 말이 두 번 전송되어 대답이 두 개 나오던 문제 (2026-10-07)
+      if (voice.rec !== rec || rec.__끝남) return;
+      rec.__끝남 = true;
       clearTimeout(voice.끊김타이머);
       voice.listening = false;
       if (el.mic) el.mic.classList.remove("listening");
@@ -1733,7 +1763,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202610071408")
+    pharmLoading = fetch("pharmacies.json?v=202610071417")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
