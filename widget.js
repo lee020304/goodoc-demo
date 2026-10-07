@@ -94,7 +94,7 @@
     var empty = { region: null, ambiguous: false, matched: "", candidates: [] };
     if (!FORMS || !flat) return empty;
     // '병원주말' 안의 '원주' 처럼 흔한 낱말에 걸친 지역명을 잡지 않는다 (서버 region_index 와 같은 규칙)
-    flat = flat.replace(/병원|의원|요양원|학원/g, function (m) { return new Array(m.length + 1).join("□"); });
+    flat = flat.replace(/병원|의원|요양원|학원|옆구리/g, function (m) { return new Array(m.length + 1).join("□"); });
 
     var nicks = Object.keys(NICKMAP);
     for (var n = 0; n < nicks.length; n++) {
@@ -174,7 +174,34 @@
      2) 애매한 표현('목','어지','가슴')은 함께 쓰인 말로 가리고, 못 가리면 되묻기
      3) 그 밖에는 '가장 긴 표현'을 따른다
         (길이로 보지 않으면 '목감기'가 '감기'에 걸려 내과로 간다) */
+  /* ── 몸 부위·방향 (서버 extract_conditions 와 같은 규칙, 2026-10-07) ──
+     '오른쪽무릎'·'왼무릎'·'오른발'처럼 붙여 써도 방향과 부위를 띄어 읽는다.
+     한 글자 부위(손·발·등·간)는 뒤에 '이/가/을…'이 올 때만 부위로 본다 ('손님'·'발진' 제외). */
+  var SIDE_GLUE = /(왼쪽|오른쪽|양쪽|좌측|우측|왼편|오른편)(?=[가-힣])/g;
+  var SIDE_SHORT = /(^|[^가-힣])(왼|오른|양)(?=(손|발|팔|다리|무릎|눈|귀|어깨|허리|가슴|옆구리|엉덩이|골반|발목|손목|종아리|허벅지|팔꿈치|엄지|검지|새끼|코|턱|볼|뺨|갈비))/g;
+  function 방향띄우기(t) {
+    return String(t || "").replace(SIDE_GLUE, "$1 ").replace(SIDE_SHORT, "$1$2 ");
+  }
+  function 낱말있나(w, t) {
+    if (w.length === 1) return new RegExp("(^|[^가-힣])" + w + "(?=[이가을를은는도에의만랑]|\\s|$)").test(t);
+    if (w.length <= 2) return new RegExp("(^|[^가-힣])" + w).test(t);
+    return t.indexOf(w) >= 0;
+  }
+  var SIDE_WORDS = [["왼쪽", "왼쪽"], ["왼편", "왼쪽"], ["좌측", "왼쪽"], ["오른쪽", "오른쪽"],
+                    ["오른편", "오른쪽"], ["우측", "오른쪽"], ["양쪽", "양쪽"], ["양", "양쪽"],
+                    ["왼", "왼쪽"], ["오른", "오른쪽"]];
+  function 방향과부위(text) {
+    var t = 방향띄우기(text), side = null, part = null;
+    for (var i = 0; i < SIDE_WORDS.length; i++) {
+      if (new RegExp("(^|[^가-힣])" + SIDE_WORDS[i][0] + "(?=\\s|$)").test(t)) { side = SIDE_WORDS[i][1]; break; }
+    }
+    var parts = R.bodyParts || [];
+    for (var j = 0; j < parts.length; j++) { if (낱말있나(parts[j], t)) { part = parts[j]; break; } }
+    return { side: side, part: part };
+  }
+
   function matchSymptom(t) {
+    t = 방향띄우기(t);
     var S = R.symptoms || {};
     var A = R.ambiguous || {};
 
@@ -227,8 +254,8 @@
     Object.keys(S).forEach(function (dept) {
       if (first.indexOf(dept) >= 0) return;
       S[dept].forEach(function (w) {
-        // 두 글자 이하 낱말은 낱말 첫머리에서만 ('엉덩이가' 안의 '이가' 를 이빨로 보지 않게)
-        var 있다 = w.length <= 2 ? new RegExp("(^|[^가-힣])" + w).test(t) : t.indexOf(w) >= 0;
+        // 짧은 낱말은 낱말 첫머리에서만 ('엉덩이가' 안의 '이가' 를 이빨로 보지 않게), 한 글자는 뒤 조사까지 본다
+        var 있다 = 낱말있나(w, t);
         if (있다 && w.length > bestLen) {
           best = dept; bestLen = w.length; bestWord = w;
         }
@@ -281,6 +308,9 @@
       c.altIntro = got2.intro || null;
       c.symptomChoice = got2.ask;
     }
+    // 방향·부위 ("왼쪽 무릎") — 되짚어 줄 때 쓴다
+    var 몸 = 방향과부위(t);
+    c.side = 몸.side; c.part = 몸.part;
 
     // 지역
     var flat = t.replace(/\s/g, "");
@@ -1466,6 +1496,10 @@
     if (c.region) lastRegion = c.region;
     var 장소 = c.region || "현재 위치 근처";
     var 무엇 = c.dept || (c.depts ? c.depts.join("·") : "병원");
+    // 방향까지 말했으면 들은 대로 되짚어 준다 ("왼쪽 무릎이 불편하시군요")
+    if (c.side && c.part) {
+      bubble(c.side + " " + c.part + (받침있나(c.part) ? "이" : "가") + " 불편하시군요.", "bot");
+    }
     if (c.depts && !c.dept) {
       bubble((c.altIntro || (c.depts.join("·") + "에서 진료해요.")) +
              (/보여드릴게요/.test(c.altIntro || "") ? "" : " 가까운 전문 의원부터 보여드릴게요."), "bot");
@@ -1681,7 +1715,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202610071148")
+    pharmLoading = fetch("pharmacies.json?v=202610071211")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
