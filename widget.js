@@ -1334,8 +1334,11 @@
     if (버튼값 && 버튼값 !== text) text = 버튼값;
 
     // "두리치과의원 대중교통" · "두 번째 병원 전화" 처럼 할 일을 말하면 되묻지 않고 바로 연다 (life.js)
-    if (!noCmd && window.JGCmd &&
-        JGCmd.handle(text, function () { ask(text, quiet, true); })) return;
+    if (!noCmd && window.JGCmd) {
+      // 명령도 내가 한 말을 먼저 보여 준다 (예전엔 명령이면 내 말풍선이 안 떴다, 2026-10-07)
+      if (!quiet && String(text).indexOf("__") !== 0) bubble(text, "me");
+      if (JGCmd.handle(text, function () { ask(text, quiet, true); })) return;
+    }
 
     // '현재 위치로 찾기' 버튼
     if (text === "__HERE__") {
@@ -1765,7 +1768,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202610071535")
+    pharmLoading = fetch("pharmacies.json?v=202610071550")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
@@ -2073,7 +2076,16 @@
     ensurePharm().then(function () { cb(찾기(PHARM, true)); }).catch(function () { cb([]); });
   }
 
+  // 대화를 처음으로 (음성 명령 "처음으로")
+  function resetChat() {
+    pending = ""; lastRegion = null;
+    el.log.innerHTML = "";
+    el.panel.hidden = true;
+    open();
+  }
+
   window.JG = {
+    reset: resetChat,
     server: false, send: function (v) { ask(v); }, bubble: bubble, node: node,
     quick: quick, log: el.log, mic: el.mic, input: el.input,
     depts: R.departments,

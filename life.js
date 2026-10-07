@@ -408,6 +408,7 @@
     if (now - lastCardAt > 1500) shown = [];
     lastCardAt = now;
     shown.push(c);
+    c.__node = e.detail.node || null;
   });
 
   function naverUrl(mode, p, pos) {
@@ -451,9 +452,114 @@
 
   /* 위젯이 부른다. 명령이면 true (위젯은 더 하지 않는다), 아니면 false.
      fallback : 이름을 못 찾았는데 이름 같지도 않을 때 평소 병원 찾기로 넘기는 함수 */
+  /* ── 말로 화면 다루기 (2026-10-07 영훈 "명령어 더 추가") ──
+     손이 바쁜 부모·어르신이 버튼 없이 말로만 쓸 수 있게. 짧은 말 전체가 맞을 때만 실행한다
+     (증상 문장 "다시 아파요" 같은 것을 가로채지 않게). */
+  function 다듬기(t) {
+    return String(t || "").replace(/[.,!?~"'“”‘’]/g, "").replace(/\s+/g, " ").trim()
+      .replace(/\s*(주세요|줘요|줘|해요|요|좀)$/g, "").replace(/\s*(해|주)$/, "").trim();
+  }
+  var 도움말 = "이렇게 말해 보세요. ‘허리가 아파요’, ‘애가 열나요’, ‘지금 문 연 약국’, " +
+    "‘두 번째 병원 전화해 줘’, ‘첫 번째 병원 걸어서’, ‘두리치과의원 대중교통’, ‘첫 번째 병원 몇 시까지 해’, " +
+    "‘다시 읽어 줘’, ‘글씨 크게’, ‘소리 켜’, ‘처음으로’, 급하면 ‘119’.";
+  // 명령에 대한 대답 : 말풍선을 그리고, 소리로 읽기를 켰으면 읽어 준다
+  // (공유판은 말풍선을 그리면 위젯이 알아서 읽는다 — 두 번 읽지 않게 서버판만)
+  function 대답(말) {
+    var JG = window.JG;
+    JG.bubble(말, "bot");
+    var 토글 = document.getElementById("speak-toggle");
+    if (JG.server && window.JGSay && 토글 && 토글.getAttribute("aria-pressed") === "true") JGSay.speak(말);
+  }
+  function 은는(이름) {
+    var c = String(이름 || "").charCodeAt(String(이름 || "").length - 1);
+    return (c >= 0xac00 && c <= 0xd7a3 && (c - 0xac00) % 28 !== 0) ? "은" : "는";
+  }
+  function 마지막대답() {
+    var JG = window.JG, rows = [].slice.call(JG.log.children), 나 = [];
+    rows.forEach(function (r, i) { if (r.classList && r.classList.contains("me")) 나.push(i); });
+    var 끝 = 나.length ? 나[나.length - 1] : rows.length, 시작 = 나.length > 1 ? 나[나.length - 2] : -1;
+    return rows.slice(시작 + 1, 끝).filter(function (r) { return r.classList && r.classList.contains("bot"); })
+      .map(function (r) { return r.textContent; }).join(" ");
+  }
+  function 앱명령(t) {
+    var JG = window.JG, d = 다듬기(t);
+    if (/^(도움말|도와|도움|뭐라고 말하면 돼|뭐라고 해야 돼|어떻게 (써|사용해|말해)|사용법|명령어|뭐 할 수 있어)/.test(d)) {
+      대답(도움말); return true;
+    }
+    if (/^(다시 (읽어|말해|들려)|한 번 더 (읽어|말해)|뭐라고(\s*했어)?|못 들었어|다시)$/.test(d)) {
+      var 말 = 마지막대답();
+      if (!말) { 대답("다시 읽어 드릴 대답이 아직 없어요."); return true; }
+      if (window.JGSay) JGSay.speak(말);
+      return true;
+    }
+    if (/^(멈춰|그만|스톱|정지|그만 읽어|조용히)$/.test(d)) { if (window.JGSay) JGSay.stop(); return true; }
+    var 토글 = document.getElementById("speak-toggle");
+    if (/^(소리 켜|읽어|목소리 켜|음성 켜|읽어 줘|소리 내|크게 읽어)$/.test(d)) {
+      if (토글 && 토글.getAttribute("aria-pressed") !== "true") 토글.click();
+      else 대답("이미 소리로 읽어 드리고 있어요.");
+      return true;
+    }
+    if (/^(소리 꺼|목소리 꺼|음성 꺼|읽지 마|소리 끄)/.test(d)) {
+      if (토글 && 토글.getAttribute("aria-pressed") === "true") 토글.click();
+      if (window.JGSay) JGSay.stop();
+      JG.bubble("소리로 읽기를 껐어요.", "bot");
+      return true;
+    }
+    if (/^(글씨|글자)\s*(더\s*)?(크게|키워|크게 해|커지게)/.test(d)) {
+      if (window.JGFont) { JGFont.set(Math.min(2, JGFont.level() + 1)); }
+      대답("글씨를 크게 했어요."); return true;
+    }
+    if (/^(글씨|글자)\s*(작게|줄여|보통|원래대로)/.test(d)) {
+      if (window.JGFont) { JGFont.set(/보통|원래/.test(d) ? 0 : Math.max(0, JGFont.level() - 1)); }
+      대답("글씨를 작게 했어요."); return true;
+    }
+    if (/^(처음으로|처음부터|다시 시작|새로 시작|처음 화면|초기화|취소)$/.test(d)) {
+      shown = [];
+      if (JG.reset) JG.reset();
+      return true;
+    }
+    if (/^(119|일일구|구급차|응급차)(\s*(불러|전화|연결|걸어))?/.test(d)) {
+      go({ name: "119", tel: "119" }, { act: "call" });
+      return true;
+    }
+    return false;
+  }
+  // 방금 보여 준 카드에 대한 명령 : 진료시간 / 자세히 / 예약
+  function 카드명령(t) {
+    var 할일 = /몇\s*시까지|언제까지|진료\s*시간|몇\s*시에\s*(닫|끝)|문\s*(열었|여나|닫)|영업\s*시간|운영\s*시간/.test(t) ? "hours"
+      : /예약/.test(t) ? "book"
+      : /자세히|정보\s*(보여|알려)|병원\s*보기|상세/.test(t) ? "detail" : null;
+    if (!할일 || !shown.length) return false;
+    var nth = null;
+    for (var j = 0; j < NTH.length; j++) { if (NTH[j][1].test(t)) { nth = NTH[j][0]; break; } }
+    // 이름을 말했으면 그 카드
+    var 이름 = 이름찾기(t, window.JG.depts || DEFAULT_DEPTS), 고른 = null;
+    if (이름) shown.forEach(function (c) { if (!고른 && nameScore(c.name, 이름) <= 4) 고른 = c; });
+    // "내과 예약하고 싶어"처럼 진료과·증상을 말하거나 긴 문장이면 새 질문이다 (가로채지 않는다)
+    var 가리킴 = /(^|\s)(그|이|저)\s*(병원|약국|의원|곳)|거기|여기|저기/.test(t);
+    var 진료과말 = (window.JG.depts || DEFAULT_DEPTS).concat(["소아과", "아파", "아픈", "열이", "기침"])
+      .some(function (w) { return t.indexOf(w) >= 0; });
+    if (!고른 && nth === null && !가리킴 && (진료과말 || 다듬기(t).replace(/\s/g, "").length > 12)) return false;
+    if (nth === null) nth = 0;
+    var c = 고른 || shown[nth];
+    if (!c) { 대답("방금 보여드린 곳은 " + shown.length + "곳이에요. 몇 번째인지 다시 말씀해 주세요."); return true; }
+    if (할일 === "hours") {
+      var h = String(c.hours || "");
+      대답(c.name + 은는(c.name) + " " + (h && h.indexOf("미확인") < 0 ? h + "까지예요." :
+        "진료시간이 공개되지 않았어요. 전화로 확인해 주세요."));
+      return true;
+    }
+    var n = c.__node, b = n && n.querySelector(할일 === "book" ? ".fill" : ".ghost");
+    if (b && b.tagName === "BUTTON") { b.click(); return true; }
+    대답(할일 === "book" ? "이 곳은 화면에서 예약을 도와드릴 수 없어요. 전화로 문의해 주세요." : "자세한 정보를 열 수 없어요.");
+    return true;
+  }
+
   function handle(text, fallback) {
     var JG = window.JG;
     if (!JG) return false;
+    if (앱명령(text)) return true;
+    if (카드명령(text)) return true;
     var cmd = parse(text, JG.depts || DEFAULT_DEPTS);
     if (!cmd) return false;
     if (cmd.nth === -1) {
@@ -514,7 +620,7 @@
     return null;
   }
 
-  window.JGCmd = { parse: parse, nameScore: nameScore, modeLabel: MODE_LABEL, handle: handle,
+  window.JGCmd = { parse: parse, nameScore: nameScore, modeLabel: MODE_LABEL, handle: handle, app: 앱명령,
                    quickValue: quickValue,
                    _shown: function () { return shown; } };
 })();
@@ -550,7 +656,8 @@
     apply();
   });
   apply();
-  window.JGFont = { level: function () { return lv; } };
+  window.JGFont = { level: function () { return lv; },
+                    set: function (n) { lv = Math.max(0, Math.min(2, n)); try { localStorage.setItem(KEY, String(lv)); } catch (e) {} apply(); } };
 })();
 
 /* ════════════════════════════════════════════════════════════
