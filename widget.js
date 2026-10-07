@@ -178,6 +178,20 @@
     var S = R.symptoms || {};
     var A = R.ambiguous || {};
 
+    // 코피는 흔한 일이라 이비인후과. 멎지 않으면 응급 (서버 match_symptom 과 같은 규칙, 2026-10-07 공유판에 빠져 있던 것)
+    if (t.indexOf("코피") >= 0) {
+      if (/멈추지|안 멈|멎지|계속 나|많이 나|쓰러|의식|119|숨이 안/.test(t)) return { dept: "응급의학과", ask: null };
+      return { dept: "이비인후과", ask: null };
+    }
+    // '변에 피'는 '피가 나'(응급)보다 먼저 본다. 멎지 않거나 어지러우면 응급 (서버와 같은 규칙, 2026-10-07)
+    if (/변에 피|혈변|피똥|항문에서 피|대변에 피|변 볼 때 피/.test(t)) {
+      if (/멈추지|안 멈|멎지|계속 나|많이 나|쓰러|의식|119|숨이 안|어지러|식은땀/.test(t)) {
+        return { dept: "응급의학과", ask: null };
+      }
+      return { dept: null, ask: null, depts: ["외과", "내과"],
+               intro: "변에 피가 보이면 외과(항문)나 내과(소화기)에서 봐요. 많이 나거나 어지러우면 바로 119에 연락하세요." };
+    }
+
     var first = ["응급의학과", "소아청소년과"];
     for (var i = 0; i < first.length; i++) {
       var ws = S[first[i]] || [];
@@ -189,9 +203,10 @@
     var keys = Object.keys(A);
     for (var k = 0; k < keys.length; k++) {
       var spec = A[keys[k]];
-      // '손목'·'발목' 안의 '목' 은 건너뛴다. 단 '거북목'처럼 단서가 있으면 본다 (서버와 같은 규칙)
+      if (t.indexOf(keys[k]) < 0) continue;
+      // '손목'·'발목' 안의 '목' 은 건너뛴다. 단 '거북목'처럼 그 말 자체가 단서면 본다 (서버와 같은 규칙)
       var 단서 = Object.keys(spec.decide || {}).some(function (d) {
-        return spec.decide[d].some(function (cl) { return t.indexOf(cl) >= 0; });
+        return spec.decide[d].some(function (cl) { return t.indexOf(cl) >= 0 && cl.indexOf(keys[k]) >= 0; });
       });
       if (!new RegExp("(^|[^가-힣])" + keys[k]).test(t) && !단서) continue;
       var decided = null;
@@ -212,17 +227,25 @@
     Object.keys(S).forEach(function (dept) {
       if (first.indexOf(dept) >= 0) return;
       S[dept].forEach(function (w) {
-        if (t.indexOf(w) >= 0 && w.length > bestLen) {
+        // 두 글자 이하 낱말은 낱말 첫머리에서만 ('엉덩이가' 안의 '이가' 를 이빨로 보지 않게)
+        var 있다 = w.length <= 2 ? new RegExp("(^|[^가-힣])" + w).test(t) : t.indexOf(w) >= 0;
+        if (있다 && w.length > bestLen) {
           best = dept; bestLen = w.length; bestWord = w;
         }
       });
     });
     // 2026-10-01 : 일반 '감기'는 이비인후과·내과·가정의학과 모두 진료한다 → 한 과로 정하지 않는다.
     // '목감기'·'코감기'처럼 구체적인 말은 이비인후과.
+    // 여러 과 표현(감기·성병 등)도 같은 '가장 긴 표현' 규칙으로 본다 (서버 match_symptom 과 같다)
+    Object.keys(MULTI_DEPT).forEach(function (w) {
+      if (new RegExp("(^|[^가-힣])" + w).test(t) && w.length >= bestLen) {
+        best = null; bestLen = w.length; bestWord = w;
+      }
+    });
     if (MULTI_DEPT[bestWord]) {
       if (/코감기|목감기/.test(t)) return { dept: "이비인후과", ask: null };
       return { dept: null, depts: MULTI_DEPT[bestWord].slice(), ask: null,
-               intro: "감기는 " + MULTI_DEPT[bestWord].join("·") + "에서 진료해요." };
+               intro: (R.multiIntro || {})[bestWord] || (MULTI_DEPT[bestWord].join("·") + "에서 진료해요.") };
     }
     return { dept: best, ask: null };
   }
@@ -519,9 +542,13 @@
         if (a.s !== b.s) return b.s - a.s;
       } else if (c.dept || c.depts) {
         // 이름에 그 과가 들어간 전문 의원을 먼저 (감기처럼 여러 과면 그 병원이 맞은 과로 본다)
-        var core = (c.dept || a._dept || "").replace("과", "");
-        var core2 = (c.dept || b._dept || "").replace("과", "");
-        var ma = core && a.n.indexOf(core) >= 0 ? 0 : 1, mb = core2 && b.n.indexOf(core2) >= 0 ? 0 : 1;
+        // '외과'는 '정형외과·신경외과·성형외과·흉부외과' 안의 외과를 빼고 본다 (서버 이름맞음 과 같은 규칙)
+        var 이름맞음 = function (dept, name) {
+          if (!dept) return false;
+          if (dept === "외과") return /(^|[^형경성부])외과/.test(name) || name.indexOf("항문") >= 0;
+          return name.indexOf(dept.replace("과", "")) >= 0;
+        };
+        var ma = 이름맞음(c.dept || a._dept, a.n) ? 0 : 1, mb = 이름맞음(c.dept || b._dept, b.n) ? 0 : 1;
         if (ma !== mb) return ma - mb;
       }
       return a._km - b._km;
@@ -1348,7 +1375,10 @@
 
     // 응급실 실시간 병상은 서버가 있어야 조회할 수 있다.
     // (API 키를 공개 화면에 넣을 수 없다)
-    if (/응급실|응급 실|119|쓰러|의식이|피가 나/.test(merged)) {
+    // '피가 나' 만 있으면 코피·변에 피 같은 흔한 일일 수 있다 → 증상 규칙이 응급이라고 할 때만 응급실 (2026-10-07)
+    var 응급말 = /응급실|응급 실|119|쓰러|의식이/.test(merged) ||
+      matchSymptom(merged).dept === "응급의학과";   // "코피가 안 멈춰요" 처럼 증상 규칙이 응급이라고 할 때
+    if (응급말) {
       pending = "";
       bubble("응급실 실시간 병상은 이 화면에서는 볼 수 없어요. "
              + "서버가 있는 화면에서 조회됩니다.", "bot");
@@ -1641,7 +1671,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202610071057")
+    pharmLoading = fetch("pharmacies.json?v=202610071116")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
