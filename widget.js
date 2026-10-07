@@ -617,6 +617,9 @@
      ══════════════════════════════════════════════════════════ */
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   var voice = { 끊김타이머: null, rec: null, listening: false, speakOn: false, lastFinal: "" };
+  // 목소리 중계소 (Cloudflare Worker) 주소 — 있으면 일레븐랩스 실시간 받아쓰기·Alice 목소리를 쓴다
+  var VOICE_API = window.__VOICE_API__ || "";
+  function 마이크기록() {}   // 공개판은 진단 기록을 보내지 않는다
   var 읽을거리 = [], 읽기타이머 = null, 읽은카드수 = 0;
 
   function loadSpeakPref() {
@@ -853,7 +856,152 @@
     if (msg && el.voiceMsg) el.voiceMsg.textContent = msg;
   }
 
+  /* ── 실시간 받아쓰기 (2026-10-07 영훈 "말하는 게 글자로 보이게") ──
+     마이크 소리를 16kHz 로 바꿔 일레븐랩스 실시간 받아쓰기(Scribe v2 Realtime)에 보내고,
+     돌아오는 '중간 글자'를 안내 줄과 입력칸에 바로 보여 준다. 말이 1.2초 멈추면 일레븐랩스가
+     확정 글자를 보내고, 그걸로 질문한다. 연결이 안 되면 '녹음 후 받아쓰기'(녹음듣기)로 넘어간다.
+     API 키는 서버에만 있고, 휴대폰은 15분짜리 일회용 열쇠로 연결한다. */
+  var 실시간가능 = !!(window.WebSocket && (window.AudioContext || window.webkitAudioContext));
+  function 실시간듣기() {
+    마이크기록("실시간시작", "");
+    voice.listening = true;
+    if (el.mic) el.mic.classList.add("listening");
+    voiceBar(true, "듣고 있어요. 말씀해 주세요");
+    el.input.value = "";
+    var AC = window.AudioContext || window.webkitAudioContext;
+    var ac = new AC();                        // 누른 그 순간에 깨워야 아이폰에서 소리가 들어온다
+    if (ac.resume) { try { ac.resume(); } catch (e) {} }
+    var rt = { ac: ac, 확정: "", 중간: "", 끝남: false, 시작: Date.now(), 말함: false, 조용시작: Date.now() };
+    voice.rt = rt;
+    var 토큰 = fetch(VOICE_API + "/token").then(function (r) {
+      if (!r.ok) throw new Error("token " + r.status);
+      return r.json();
+    });
+    navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
+      .then(function (stream) {
+        rt.stream = stream;
+        if (rt.끝남) { stream.getTracks().forEach(function (t) { t.stop(); }); return; }
+        return 토큰.then(function (d) {
+          if (rt.끝남) return;
+          var ws = new WebSocket("wss://api.elevenlabs.io/v1/speech-to-text/realtime?model_id=scribe_v2_realtime" +
+            "&language_code=ko&audio_format=pcm_16000&commit_strategy=vad&vad_silence_threshold_secs=1.2" +
+            "&token=" + encodeURIComponent(d.token));
+          rt.ws = ws;
+          ws.onmessage = function (ev) {
+            var m;
+            try { m = JSON.parse(ev.data); } catch (e) { return; }
+            var t = String(m.text || "").trim();
+            if (m.message_type === "partial_transcript" && t) {
+              rt.중간 = t; rt.말함 = true; rt.조용시작 = Date.now();
+              var 보이기 = (rt.확정 ? rt.확정 + " " : "") + t;
+              el.input.value = 보이기;              // 말하는 동안 글자가 바로 보인다
+              voiceBar(true, "“" + 보이기 + "”");
+            } else if (/^committed_transcript/.test(m.message_type || "") && t) {
+              rt.확정 = (rt.확정 ? rt.확정 + " " : "") + t;
+              rt.중간 = "";
+              el.input.value = rt.확정;
+              voiceBar(true, "“" + rt.확정 + "”");
+              실시간끝("확정");
+            } else if (/error/i.test(m.message_type || "")) {
+              마이크기록("실시간오류", JSON.stringify(m).slice(0, 200));
+            }
+          };
+          ws.onerror = function () { 마이크기록("실시간연결오류", ""); 실시간실패(); };
+          ws.onopen = function () {
+            // 마이크 소리 → 16kHz 숫자 → 덩어리마다 보내기
+            var src = ac.createMediaStreamSource(stream);
+            var proc = ac.createScriptProcessor(4096, 1, 1);
+            rt.proc = proc; rt.src = src;
+            var 비율 = ac.sampleRate / 16000;
+            proc.onaudioprocess = function (e) {
+              if (rt.끝남 || ws.readyState !== 1) return;
+              var 입력 = e.inputBuffer.getChannelData(0), 길이 = Math.floor(입력.length / 비율);
+              var pcm = new Int16Array(길이), 합 = 0;
+              for (var i = 0; i < 길이; i++) {
+                var v = 입력[Math.floor(i * 비율)];
+                합 += v * v;
+                pcm[i] = Math.max(-1, Math.min(1, v)) * 0x7fff;
+              }
+              if (Math.sqrt(합 / Math.max(1, 길이)) > 0.02) { rt.말함 = true; rt.조용시작 = Date.now(); }
+              var 바이트 = new Uint8Array(pcm.buffer), 글 = "";
+              for (var j = 0; j < 바이트.length; j += 0x8000) {
+                글 += String.fromCharCode.apply(null, 바이트.subarray(j, j + 0x8000));
+              }
+              ws.send(JSON.stringify({ message_type: "input_audio_chunk", audio_base_64: btoa(글),
+                                       commit: false, sample_rate: 16000 }));
+            };
+            src.connect(proc);
+            proc.connect(ac.destination);
+          };
+          // 안전장치 : 말이 없으면 7초, 말한 뒤 2.5초 조용한데 확정이 안 오면, 길어도 15초
+          rt.감시 = setInterval(function () {
+            var 지금 = Date.now();
+            if ((!rt.말함 && 지금 - rt.시작 > 7000) || (rt.말함 && 지금 - rt.조용시작 > 2500) ||
+                지금 - rt.시작 > 15000) {
+              실시간끝("시간");
+            }
+          }, 200);
+        });
+      })
+      .catch(function (err) {
+        마이크기록("실시간실패", String(err && (err.name || err.message)));
+        if (String(err && err.name) === "NotAllowedError") {
+          정리(rt);
+          voiceBar(true, "마이크를 쓸 수 없어요. 주소창의 aA(또는 자물쇠)에서 마이크를 허용해 주세요");
+          setTimeout(function () { voiceBar(false); }, 5200);
+          return;
+        }
+        실시간실패();
+      });
+  }
+  function 정리(rt) {
+    rt.끝남 = true;
+    clearInterval(rt.감시);
+    try { if (rt.proc) rt.proc.disconnect(); if (rt.src) rt.src.disconnect(); } catch (e) {}
+    try { if (rt.stream) rt.stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
+    try { if (rt.ac) rt.ac.close(); } catch (e) {}
+    try { if (rt.ws && rt.ws.readyState === 1) rt.ws.close(); } catch (e) {}
+    if (voice.rt === rt) voice.rt = null;
+    voice.listening = false;
+    if (el.mic) el.mic.classList.remove("listening");
+  }
+  // 실시간이 안 되면 이번 화면에서는 '녹음 후 받아쓰기'로 바꾼다
+  function 실시간실패() {
+    var rt = voice.rt;
+    if (!rt || rt.끝남) return;
+    정리(rt);
+    실시간가능 = false;
+    voiceBar(true, "실시간 받아쓰기에 연결하지 못했어요. 마이크를 다시 누르면 이 기기 받아쓰기로 들을게요");
+    setTimeout(function () { voiceBar(false); }, 4000);
+  }
+  function 실시간끝(이유) {
+    var rt = voice.rt;
+    if (!rt || rt.끝남) return;
+    // 확정 글자가 아직 없고 중간 글자만 있으면, 확정을 한 번 요청하고 잠깐 기다린다
+    if (!rt.확정 && rt.중간 && rt.ws && rt.ws.readyState === 1 && 이유 !== "확정" && !rt.마무리중) {
+      rt.마무리중 = true;
+      try {
+        rt.ws.send(JSON.stringify({ message_type: "input_audio_chunk", audio_base_64: "",
+                                    commit: true, sample_rate: 16000 }));
+      } catch (e) {}
+      setTimeout(function () { 실시간끝("마무리"); }, 1200);
+      return;
+    }
+    var 말 = (rt.확정 || rt.중간 || "").replace(/[.?!。]+$/, "").trim();
+    마이크기록("실시간끝", 이유 + " 들은말=" + 말);
+    정리(rt);
+    el.input.value = "";
+    if (!말) {
+      voiceBar(true, "소리가 들리지 않았어요. 마이크를 다시 눌러 주세요");
+      setTimeout(function () { voiceBar(false); }, 3600);
+      return;
+    }
+    voiceBar(false);
+    ask(말);
+  }
+
   function stopListen() {
+    if (voice.rt) { 실시간끝("눌러서 끝"); return; }
     var r = voice.rec;
     if (r && voice.listening) {
       try { r.stop(); } catch (e) {}
@@ -900,6 +1048,11 @@
       if (el.mic) el.mic.classList.remove("listening");
     }
     stopSpeaking();
+    // 중계소가 있으면 일레븐랩스 실시간 받아쓰기 (말하는 동안 글자가 보이고, 아이폰에서도 여러 번 된다)
+    if (VOICE_API && 실시간가능 && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      실시간듣기();
+      return;
+    }
     // 누른 그 순간에 바로 시작한다. 휴대폰 크롬은 사람이 누른 직후에만 마이크를 허락하는 일이 있어
     // 예전처럼 '마이크가 꽂혀 있나'를 먼저 묻고(기다림) 시작하면 두 번째부터 막힐 수 있다 (2026-10-07).
     // 마이크가 없는지는 실패했을 때(onerror) 확인한다.
@@ -1768,7 +1921,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202610071550")
+    pharmLoading = fetch("pharmacies.json?v=202610071641")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
@@ -2085,6 +2238,7 @@
   }
 
   window.JG = {
+    voiceApi: VOICE_API,
     reset: resetChat,
     server: false, send: function (v) { ask(v); }, bubble: bubble, node: node,
     quick: quick, log: el.log, mic: el.mic, input: el.input,

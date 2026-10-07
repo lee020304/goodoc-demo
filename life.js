@@ -781,7 +781,13 @@
      키는 서버에만 있고 화면은 소리(mp3)만 받는다. 실패하면 이 기기 목소리로 바로 넘어간다.
      공개판(깃허브)은 서버가 없어 이 기기 목소리를 그대로 쓴다. */
   var 소리 = null, 원격꺼짐 = false;
-  function 원격가능() { return !!(window.JG && window.JG.server) && !원격꺼짐 && window.Audio; }
+  function 원격주소() {
+    var JG = window.JG;
+    if (!JG) return "";
+    if (JG.server) return "/api/tts/say";
+    return JG.voiceApi ? JG.voiceApi + "/tts" : "";   // 공개판 : 목소리 중계소 (2026-10-07)
+  }
+  function 원격가능() { return !!원격주소() && !원격꺼짐 && window.Audio; }
 
   function stop() {
     token++;
@@ -795,7 +801,7 @@
     if (!parts.length) return;
     onstate = stateCb || null;
     if (원격가능()) {
-      var a = new Audio("/api/tts/say?speed=" + (rate() < 0.9 ? 0.8 : 0.9) + "&text=" + encodeURIComponent(said));
+      var a = new Audio(원격주소() + "?speed=" + (rate() < 0.9 ? 0.8 : 0.9) + "&text=" + encodeURIComponent(said));
       소리 = a;
       var 대신 = function () {
         if (my !== token) return;
