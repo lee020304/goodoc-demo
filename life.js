@@ -506,3 +506,151 @@
   apply();
   window.JGFont = { level: function () { return lv; } };
 })();
+
+/* ════════════════════════════════════════════════════════════
+   읽어주기 목소리 (2026-10-07 영훈 : "무슨 말인지 하나도 안 들리고 목소리도 별로")
+
+   고친 것
+   1) 목소리 고르기 : 한국어 목소리 중 '첫 번째'가 아니라 가장 자연스러운 것을 고른다.
+      엣지의 신경망 목소리(…Online (Natural)) > 구글 목소리(크롬·안드로이드)
+      > 아이폰 '향상된' 목소리 > 그 밖. 윈도우 기본 '해미'는 기계음이 강해 뒤로 둔다.
+      목소리 목록은 늦게 오는 일이 많아 올 때까지 잠깐 기다린다(최대 1.2초).
+      기다리지 않으면 한국어가 아닌 목소리로 읽혀 알아들을 수 없게 된다.
+   2) 기호를 말로 : '09:00~18:00' → '오전 9시부터 오후 6시까지', '0.42km' → '약 420미터',
+      '·' → 쉼표, '119' → '일일구', 따옴표·그림문자는 읽지 않는다.
+   3) 문장마다 끊어 읽는다 : 크롬은 긴 글을 한 번에 읽다 중간에 멈추는 일이 있다.
+   4) 속도 : 보통 0.9배, 글씨를 크게 쓰는 분(어르신)께는 0.8배로 더 천천히.
+   5) 말풍선을 누르면 그 말을 다시 읽는다 (놓친 말을 다시 듣기).
+   ════════════════════════════════════════════════════════════ */
+(function () {
+  "use strict";
+  if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) { window.JGSay = null; return; }
+  var S = window.speechSynthesis, chosen = null, token = 0, onstate = null;
+
+  function score(v) {
+    var n = (v.name || "") + " " + (v.voiceURI || ""), s = 0;
+    if (/natural|neural|online/i.test(n)) s += 50;
+    if (/google/i.test(n)) s += 40;
+    if (/premium|enhanced|향상|고품질/i.test(n)) s += 35;
+    if (/yuna|유나|sora|sunhi|선희|injoon|인준/i.test(n)) s += 10;
+    if (/heami|해미/i.test(n)) s -= 10;
+    if (/ko[-_]?kr/i.test(v.lang || "")) s += 3;
+    return s;
+  }
+  function pick() {
+    var vs = S.getVoices().filter(function (v) { return /^ko/i.test(v.lang || ""); });
+    if (!vs.length) return null;
+    vs.sort(function (a, b) { return score(b) - score(a); });
+    return vs[0];
+  }
+  function ready(cb) {
+    chosen = chosen || pick();
+    if (chosen) { cb(); return; }
+    var done = false;
+    var t = setTimeout(function () { if (!done) { done = true; chosen = pick(); cb(); } }, 1200);
+    var h = function () {
+      if (done) return;
+      chosen = pick();
+      if (chosen) { done = true; clearTimeout(t); cb(); }
+    };
+    if (S.addEventListener) S.addEventListener("voiceschanged", h); else S.onvoiceschanged = h;
+  }
+  try { S.getVoices(); } catch (e) {}   // 목록을 미리 불러 둔다
+
+  var 세는말 = ["", "한", "두", "세", "네", "다섯", "여섯", "일곱", "여덟", "아홉", "열"];
+  function 시각(h, m) {
+    h = +h; m = +m;
+    var 앞 = h === 0 ? "밤 12시" : h < 12 ? "오전 " + h + "시" : h === 12 ? "낮 12시"
+          : h === 24 ? "밤 12시" : (h > 24 ? "다음 날 " + (h - 24) + "시" : "오후 " + (h - 12) + "시");
+    return 앞 + (m ? " " + m + "분" : "");
+  }
+  function normalize(text) {
+    var t = String(text || "");
+    t = t.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, "");
+    t = t.replace(/(\d{1,2}):(\d{2})\s*[~\-–]\s*(\d{1,2}):(\d{2})/g, function (a, h1, m1, h2, m2) {
+      return 시각(h1, m1) + "부터 " + 시각(h2, m2) + "까지";
+    });
+    t = t.replace(/(\d{1,2}):(\d{2})/g, function (a, h, m) { return 시각(h, m); });
+    t = t.replace(/(\d+(?:\.\d+)?)\s*km/gi, function (a, n) {
+      var km = parseFloat(n);
+      if (km < 1) return "약 " + Math.round(km * 100) * 10 + "미터";
+      return "약 " + (Math.round(km * 10) / 10) + "킬로미터";
+    });
+    t = t.replace(/(\d+)\s*(곳|개|명)/g, function (a, n, u) {
+      n = +n; return n >= 1 && n <= 10 ? 세는말[n] + " " + u : a;
+    });
+    // 전화번호는 한 자리씩 ("062-676-5075" 를 "육백칠십육"처럼 읽지 않게)
+    t = t.replace(/(0\d{1,2})-(\d{3,4})-(\d{4})/g, function (a) {
+      return a.split("").map(function (ch) {
+        return ch === "-" ? ", " : "공일이삼사오육칠팔구".charAt(+ch);
+      }).join("");
+    });
+    t = t.replace(/119/g, "일일구");
+    t = t.replace(/[“”"‘’'«»「」]/g, "");
+    // 괄호 안 말은 따로 한 문장으로 읽는다 ("다섯 곳이에요. (전체 174곳 중)" → "…이에요. 전체 174곳 중.")
+    t = t.replace(/\s*[(\[]([^)\]]*)[)\]]\s*/g, function (a, x) { return x.trim() ? ". " + x.trim() + ". " : " "; });
+    t = t.replace(/[·•|/]/g, ", ").replace(/~/g, "에서 ");
+    t = t.replace(/([.!?])\s*[.,]+/g, "$1").replace(/^\s*[.,]\s*/, "");
+    t = t.replace(/\s*,\s*(,\s*)+/g, ", ").replace(/\s+,/g, ",").replace(/\s+/g, " ")
+         .replace(/^,\s*|,\s*$/g, "").trim();
+    return t;
+  }
+  function sentences(t) {
+    var out = [];
+    t.split(/(?<=[.!?])\s+/).forEach(function (s) {
+      s = s.trim();
+      // 너무 긴 문장은 쉼표에서 한 번 더 나눈다 (한 번에 들을 수 있는 길이로)
+      while (s.length > 70 && s.indexOf(", ", 25) > 0) {
+        var i = s.indexOf(", ", 25);
+        out.push(s.slice(0, i)); s = s.slice(i + 2).trim();
+      }
+      if (s) out.push(s);
+    });
+    return out;
+  }
+  function rate() {
+    var lv = window.JGFont ? window.JGFont.level() : 0;
+    return lv >= 1 ? 0.8 : 0.9;
+  }
+  function stop() {
+    token++;
+    try { S.cancel(); } catch (e) {}
+    if (onstate) { var f = onstate; onstate = null; f(false); }
+  }
+  function speak(text, stateCb) {
+    stop();
+    var my = token, parts = sentences(normalize(text));
+    if (!parts.length) return;
+    onstate = stateCb || null;
+    ready(function () {
+      if (my !== token) return;
+      // 안드로이드 크롬은 멈추기(cancel) 바로 뒤의 첫 말을 흘리는 일이 있어 잠깐 쉰다
+      setTimeout(function () {
+        if (my !== token) return;
+        if (onstate) onstate(true);
+        parts.forEach(function (p, i) {
+          var u = new SpeechSynthesisUtterance(p);
+          u.lang = "ko-KR";
+          if (chosen) u.voice = chosen;
+          u.rate = rate(); u.pitch = 1; u.volume = 1;
+          if (i === parts.length - 1) {
+            u.onend = u.onerror = function () {
+              if (my === token && onstate) { var f = onstate; onstate = null; f(false); }
+            };
+          }
+          S.speak(u);
+        });
+      }, 80);
+    });
+  }
+
+  // 말풍선을 누르면 그 말을 다시 읽어 준다 (읽어주기를 켜지 않았어도, 누른 것은 읽는다)
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest(".row.bot .bubble");
+    if (!b) return;
+    speak(b.textContent);
+  });
+
+  window.JGSay = { speak: speak, stop: stop, normalize: normalize,
+                   voiceName: function () { return chosen ? chosen.name : null; } };
+})();

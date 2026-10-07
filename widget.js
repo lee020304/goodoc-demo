@@ -681,10 +681,13 @@
           var 짧은 = 핵심.length < prev.length ? 핵심 : prev;
           var 긴 = 핵심.length < prev.length ? prev : 핵심;
           if (긴.indexOf(짧은) >= 0) return true;      // 한쪽이 다른 쪽에 통째로 들어감
-          // 여섯 글자 이상 잇따라 똑같으면 같은 말을 되풀이하는 것으로 본다.
+          // 짧은 문장의 60% 이상이 잇따라 똑같으면 같은 말을 되풀이하는 것으로 본다.
           // ("심야 약국 한 곳이에요" 와 "심야 약국 한 곳을 찾았어요" 처럼)
-          for (var i = 0; i + 6 <= 짧은.length; i++) {
-            if (긴.indexOf(짧은.substr(i, 6)) >= 0) return true;
+          // 2026-10-07 : 예전엔 여섯 글자만 겹쳐도 지워서 "가장 가까운 곳은 ○○소아청소년과의원"이
+          // 앞 문장의 '소아청소년과' 때문에 통째로 빠졌다. 병원 이름을 못 듣게 되던 문제.
+          var 기준 = Math.max(6, Math.ceil(짧은.length * 0.6));
+          for (var i = 0; i + 기준 <= 짧은.length; i++) {
+            if (긴.indexOf(짧은.substr(i, 기준)) >= 0) return true;
           }
           return false;
         });
@@ -711,6 +714,7 @@
   }
 
   function stopSpeaking() {
+    if (window.JGSay) { JGSay.stop(); if (el.speakToggle) el.speakToggle.classList.remove("talking"); return; }
     if (!window.speechSynthesis) return;
     try { speechSynthesis.cancel(); } catch (e) {}
     if (el.speakToggle) el.speakToggle.classList.remove("talking");
@@ -730,6 +734,13 @@
     var t = dropRepeats(읽을거리);
     읽을거리 = []; 읽은카드수 = 0;
     if (!t || !voice.speakOn || !window.speechSynthesis) return;
+    // 2026-10-07 : 좋은 목소리 고르기·기호 풀어 읽기·문장별 읽기는 공용 부품(life.js JGSay)이 한다
+    if (window.JGSay) {
+      JGSay.speak(t, function (on) {
+        if (el.speakToggle) el.speakToggle.classList.toggle("talking", !!on);
+      });
+      return;
+    }
     stopSpeaking();
     var u = new SpeechSynthesisUtterance(t);
     u.lang = "ko-KR";
@@ -775,7 +786,7 @@
         "aria-label", voice.speakOn ? "답변 읽어주기 끄기" : "답변 읽어주기 켜기");
     }
     if (!voice.speakOn) { stopSpeaking(); 읽을거리 = []; }
-    else if (알릴까) 읽기예약("이제 답변을 읽어드릴게요.");
+    else if (알릴까) 읽기예약("이제 답변을 읽어드릴게요. 말풍선을 누르면 다시 들을 수 있어요.");
   }
 
   function voiceBar(on, msg) {
@@ -1367,6 +1378,17 @@
     }
 
     // 지역을 말하지 않았으면 현재 위치로 찾는다 (2026-10-01 영훈 지적: "가까운 데"인데 지역을 되물었다)
+    // 증상·진료과·조건·지역 중 아무것도 못 알아들었으면 아무 병원이나 보여주지 않고 다시 말해 달라고 한다
+    // (2026-10-07 영훈 : "병원 이름을 말 안 했는데 병원이 나오면 오류") — 서버 dialog 와 같은 규칙
+    if (!c.dept && !c.depts && !c.region && !(c.sunday || c.saturday || c.weekend || c.night ||
+        c.openNow || c.openUntil || c.parking || c.specialist)) {
+      pending = "";
+      bubble("잘 못 알아들었어요. 어디가 아픈지 한 번만 다시 말씀해 주세요. "
+             + "예를 들면 ‘목이 아파요’, ‘애가 열나요’처럼요.", "bot");
+      quick((R.commonSymptoms || []).map(function (x) { return { label: x, value: x }; }));
+      return;
+    }
+
     // 앞에서 말한 지역은 이어 쓴다 (다시 묻지 않기)
     if (!c.region && lastRegion && !c.nearMe) c.region = lastRegion;
     // 지역을 말하지 않으면 무엇을 묻든 현재 위치부터 (2026-10-06 : "지금 문 연 병원"도 지역을 물었다)
@@ -1398,7 +1420,7 @@
       regionQuestion(c, merged);
       return;
     }
-    if (!c.dept && !c.depts && !c.here && !(c.sunday || c.saturday || c.weekend || c.night || c.openNow
+    if (!c.dept && !c.depts && !(c.sunday || c.saturday || c.weekend || c.night || c.openNow
                      || c.openUntil || c.parking)) {
       pending = merged;
       bubble("어디가 불편하신지, 또는 진료과를 알려주세요.", "bot");
@@ -1619,7 +1641,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202610071036")
+    pharmLoading = fetch("pharmacies.json?v=202610071057")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
