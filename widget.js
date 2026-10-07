@@ -1765,7 +1765,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202610071431")
+    pharmLoading = fetch("pharmacies.json?v=202610071535")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();

@@ -293,7 +293,8 @@
     ["car", /자동차|자가용|차로|차 타고|차타고|운전|택시/],
     ["walk", /도보|걸어서|걸어|걷는|걸어가/]
   ];
-  var ROUTE_WORDS = /길\s*찾기|길찾아|가는\s*길|가는\s*법|어떻게\s*가|길\s*안내|길\s*알려|네이버\s*지도|카카오\s*맵|카카오\s*지도|지도/;
+  // 2026-10-07 : '안내해 줘', '위치 알려줘', '어디야'도 길찾기로 본다 ('어디가 아파'는 아니다)
+  var ROUTE_WORDS = /길\s*찾기|길찾아|가는\s*길|가는\s*법|가는\s*방법|어떻게\s*가|길\s*안내|길\s*알려|안내|위치|어디야|어디\s*있|어딨|어디에\s*있|데려다|네이버\s*지도|카카오\s*맵|카카오\s*지도|지도/;
   var CALL_WORDS = /전화|통화/;
   var NTH = [
     [0, /(첫|1)\s*(번째|번)|첫\s*번|맨\s*위|제일\s*위|1\s*등/],
@@ -303,8 +304,30 @@
     [4, /(다섯|5)\s*(번째|번)/]
   ];
   // 이름을 뽑을 때 지우는 말 (할 일·꾸밈말·조사)
-  var FILLER = /갈\s*수\s*있는|갈\s*수|있는|할\s*수|대중\s*교통|버스|지하철|전철|자동차|자가용|차 타고|차타고|운전|택시|도보|걸어서|걸어가|걸어|걷는|길\s*찾기|길찾아|가는\s*길|가는\s*법|어떻게|길\s*안내|길\s*알려|네이버\s*지도|카카오\s*맵|카카오\s*지도|카카오|네이버|지도|전화|통화|연결|으로|까지|에서|로|가자|가줘|가 줘|갈래|가고\s*싶어|가는|가요|가$|알려\s*줘|알려\s*주세요|알려|보여\s*줘|열어\s*줘|열어|걸어\s*줘|해\s*줘|해\s*주세요|해봐|해|줘|주세요|좀|번호|바로|지금|빨리|[.,!?~]/g;
-  var GENERIC = /의원|병원|약국|한의원|치과|클리닉|의료원|센터|보건소|근처|가까운|가까이|주변|여기|제일|가장|거기|그곳|저기|아무|곳|데$/g;
+  var FILLER = /안내해?|달라고|해\s*달라|부탁해?|가르쳐\s*줘?|데려다\s*줘?|위치|어디야|어디\s*있어?|어딨어?|갈\s*수\s*있는|갈\s*수|있는|할\s*수|대중\s*교통|버스|지하철|전철|자동차|자가용|차 타고|차타고|운전|택시|도보|걸어서|걸어가|걸어|걷는|길\s*찾기|길찾아|가는\s*길|가는\s*법|어떻게|길\s*안내|길\s*알려|네이버\s*지도|카카오\s*맵|카카오\s*지도|카카오|네이버|지도|전화|통화|연결|으로|까지|에서|로|가자|가줘|가 줘|갈래|가고\s*싶어|가는|가요|가$|알려\s*줘|알려\s*주세요|알려|보여\s*줘|열어\s*줘|열어|걸어\s*줘|해\s*줘|해\s*주세요|해봐|해|줘|주세요|좀|번호|바로|지금|빨리|[.,!?~]/g;
+  // 이름이 아니라 '조건'인 말 ("지금 문 연 병원", "주말에 하는 병원") — 이것만 남으면 이름이 아니다 (2026-10-07)
+  var GENERIC = /의원|병원|약국|한의원|치과|클리닉|의료원|센터|보건소|근처|가까운|가까이|주변|여기|제일|가장|거기|그곳|저기|아무|곳|데$|지금|문연|문 연|여는|열린|열려|오늘|내일|야간|밤|새벽|심야|주말|일요일|토요일|공휴일|24시간|24시|큰|대학|종합|좋은|잘하는|유명한|아이|애기|소아|어린이|안내|달라고|부탁|알려|가르쳐|데려다|위치|어디|해줘|해 줘|줘|요/g;
+
+  /* 말에서 병원·약국 이름을 직접 찾는다 (2026-10-07)
+     "중앙 신경과 의원 도보로 안내해 달라고" → "중앙신경과의원"
+     예전엔 군더더기를 지우는 방식이라 '안내'·'달라고'가 이름에 붙어 병원을 못 찾았다. */
+  var 앞군더더기 = /^(저기|거기|여기|그|이|우리|집앞|집\s*앞|동네|근처|가까운|제일|가장|혹시|그럼|그러면|아니|음|어)+/;
+  function 이름찾기(t, depts) {
+    // 지도 앱 이름·가는 방법 말은 먼저 뺀다 ("카카오맵으로 신이비인후과" → "신이비인후과")
+    var 붙인 = String(t || "")
+      .replace(/카카오\s*맵|카카오\s*지도|네이버\s*지도|지도|대중\s*교통|자동차|자가용|택시|도보|걸어서|버스|지하철|전철|(으로|로)(?=\s)/g, " ")
+      .replace(/[\s.,!?~"'“”‘’]/g, "");
+    var 끝말 = ["한의원", "치과의원", "의원", "병원", "약국", "의료원", "클리닉", "센터", "보건소"]
+      .concat((depts || []).slice().sort(function (a, b) { return b.length - a.length; }));
+    var 맞음 = new RegExp("([가-힣A-Za-z0-9]{1,24}?(?:" + 끝말.join("|") + "))").exec(붙인);
+    if (!맞음) return "";
+    var 이름 = 맞음[1].replace(앞군더더기, "");
+    // 뒤에 '의원'이 이어지면 함께 ("중앙신경과" + "의원")
+    var 뒤 = 붙인.slice(맞음.index + 맞음[1].length);
+    var 덧 = /^(의원|병원|한의원)/.exec(뒤);
+    if (덧) 이름 += 덧[1];
+    return 이름;
+  }
 
   function parse(text, depts) {
     var t = String(text || "").trim();
@@ -321,15 +344,30 @@
     for (var j = 0; j < NTH.length; j++) {
       if (NTH[j][1].test(t)) { nth = NTH[j][0]; break; }
     }
-    var name = t;
-    NTH.forEach(function (n) { name = name.replace(n[1], " "); });
-    name = name.replace(FILLER, " ").replace(/\s+/g, "");
+    var name = 이름찾기(t, depts || DEFAULT_DEPTS);
+    if (!name) {
+      name = t;
+      NTH.forEach(function (n) { name = name.replace(n[1], " "); });
+      name = name.replace(FILLER, " ").replace(/\s+/g, "");
+    }
     // 진료과·일반 낱말을 빼고도 한 글자 이상 남아야 '이름'으로 본다. ('신이비인후과' → '신')
     // ("근처 이비인후과 대중교통" 은 이름이 아니라 병원 찾기다)
     var core = name;
-    (depts || []).slice().sort(function (a, b) { return b.length - a.length; })
+    // 진료과 이름과 흔한 줄임말(소아과·비뇨기과·정신과)을 모두 빼고 본다
+    (depts || []).concat(DEFAULT_DEPTS, ["소아과", "비뇨기과", "정신과", "이비인후", "산부인과", "피부과"])
+      .sort(function (a, b) { return b.length - a.length; })
       .forEach(function (d) { core = core.split(d).join(""); });
-    core = core.replace(GENERIC, "");
+
+    // 조건 낱말과 조사를 번갈아 두 번 지운다 ("주말에하는" → "주말에" → "")
+    var 조사 = /에서|에도|에는|하는|하고|되는|있는|^에|에$/g;
+    core = core.replace(GENERIC, "").replace(조사, "").replace(GENERIC, "").replace(조사, "");
+    // 이름 없이 "거기 전화해 줘", "길 안내해 줘" 처럼만 말하면 방금 보여 준 ①번으로 본다 (nth = -1)
+    // ('가까운 약국 어디야'처럼 조건만 있는 말은 찾기다 — '그/이/거기' 같은 가리키는 말이 있거나 아무 이름도 없을 때만)
+    // 이름이 따로 있으면 이름이 먼저다 ("저기 중앙신경과의원" → 중앙신경과의원)
+    var 지시만 = !name || /^(거기|여기|저기|그곳|그거|거|그|이)$/.test(name) ||
+      (/^(병원|약국|의원)$/.test(name) &&
+       (/(^|\s)(그|이|저)\s*(병원|약국|의원|곳)/.test(t) || /(^|\s)(거기|여기|저기)(\s|$)/.test(t)));
+    if (nth === null && 지시만) nth = -1;
     if (nth === null && core.length < 1) return null;
     return {
       act: call && !route ? "call" : "route",
@@ -418,6 +456,12 @@
     if (!JG) return false;
     var cmd = parse(text, JG.depts || DEFAULT_DEPTS);
     if (!cmd) return false;
+    if (cmd.nth === -1) {
+      if (!shown.length) return false;          // 보여 준 목록이 없으면 평소 찾기로
+      JG.bubble("①번 " + shown[0].name + "(으)로 할게요.", "bot");
+      go(shown[0], cmd);
+      return true;
+    }
     if (cmd.nth !== null) {
       var p = shown[cmd.nth];
       if (p) { go(p, cmd); return true; }
@@ -431,8 +475,9 @@
     if (best && bs <= 4) { go(best, cmd); return true; }
     // 2) 전국 자료에서 이름으로 찾는다 (위치를 알면 가장 가까운 곳)
     if (!JG.findPlace) return false;
-    var 진행 = function () {
-      JG.findPlace(cmd.name, cmd.pharmacy, function (list) {
+    var 진행 = function (이름, 남은) {
+      JG.findPlace(이름, cmd.pharmacy, function (list) {
+        if ((!list || !list.length) && 남은 > 0 && 이름.length > 4) { 진행(이름.slice(1), 남은 - 1); return; }
         if (list && list.length) {
           var 같은 = list.filter(function (x) { return x.name === list[0].name; }).length;
           if (nameScore(list[0].name, cmd.name) > 1) {
@@ -448,7 +493,7 @@
         } else if (fallback) { fallback(); }
       });
     };
-    if (JG.getPos) JG.getPos(진행); else 진행();
+    if (JG.getPos) JG.getPos(function () { 진행(cmd.name, 3); }); else 진행(cmd.name, 3);
     return true;
   }
 
