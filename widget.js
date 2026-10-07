@@ -1160,6 +1160,7 @@
       : "진료시간이 공개되지 않아 전화로 확인이 필요해요.";
     var 시간 = (t.text && String(t.text).indexOf("미확인") < 0) ? t.text : "";
     카드읽기(h.n, 상태, 시간, h._km);
+    return c;
   }
 
   function confirmBox(h, dept, t) {
@@ -1497,7 +1498,16 @@
     if (notices.length) notice(notices.join(" "));
     el.log.appendChild(node('<div class="from-note">거리는 ' +
       esc(c.region && !c.here ? c.region : "현재 위치") + " 기준이에요.</div>"));
-    out.rows.forEach(function (h) { card(h, c.dept || h._dept); });
+    // 번호(①②③)가 실제 거리 순서와 맞도록 가까운 순으로 세운다 (평가·전문의 순으로 물었으면 그 순서 유지)
+    // 읽어주기의 '가장 가까운 곳'도 ①번과 같아진다 (2026-10-07)
+    var 순서 = c.rating ? "rating" : c.specialist ? "specialist" : "distance";
+    if (순서 === "distance") {
+      out.rows.sort(function (a, b) { return a._km - b._km; });
+      out.unknownRows.sort(function (a, b) { return a._km - b._km; });
+    }
+    var 병원들 = out.rows.map(function (h) { return card(h, c.dept || h._dept); });
+    if (window.JGOrder) JGOrder.mark(병원들, { kind: "병원", order: 순서,
+      from: c.region && !c.here ? c.region : "현재 위치" });
     if (out.unknownRows.length) {
       el.log.appendChild(node('<div class="from-note jg-unknown-head">아래는 ' + esc(ct) +
         " 정보가 공공데이터에 없어 확인하지 못한 곳이에요.</div>"));
@@ -1671,7 +1681,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202610071116")
+    pharmLoading = fetch("pharmacies.json?v=202610071148")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
@@ -1771,6 +1781,7 @@
         ? regionText : regionText + " 약국");
       bubble(머리 + " " + top.length + "곳이에요. (전체 "
              + hit.length + "곳 중 가까운 순)", "bot");
+      var 약국들 = [];
       top.forEach(function (x) {
         var 배지 = x.al ? '<span class="ptag always">24시간</span>'
           : x.la ? '<span class="ptag late">심야</span>'
@@ -1799,7 +1810,10 @@
           : x.la ? "심야까지 운영이에요."
           : x.ni ? "야간까지 운영이에요." : "";
         카드읽기(x.n, 상태, 오늘 ? "오늘 " + 오늘 : "", x._km);
+        약국들.push(c2);
       });
+      if (window.JGOrder) JGOrder.mark(약국들, { kind: "약국", order: "distance",
+        from: 머리말 ? "현재 위치" : regionText.replace(/\s*약국.*$/, "") + " 한가운데" });
       // 출처는 매번 같은 말이라 눈으로만 보여준다
       notice("건강보험심사평가원 약국정보와 국립중앙의료원 응급의료정보를 합친 자료입니다. "
              + "운영시간은 실제와 다를 수 있으니 방문 전 전화로 확인해 주세요.", false);

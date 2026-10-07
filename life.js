@@ -654,3 +654,53 @@
   window.JGSay = { speak: speak, stop: stop, normalize: normalize,
                    voiceName: function () { return chosen ? chosen.name : null; } };
 })();
+
+/* ════════════════════════════════════════════════════════════
+   번호와 순서 안내 (2026-10-07 영훈 : "1번부터 3번까지 거리순으로 나왔다는 식으로,
+   고령층이 잘 알아볼 수 있게 맨 아래에 설명 문구")
+
+   JGOrder.mark(카드요소들, { order: "distance"|"rating"|"specialist", kind: "병원"|"약국", from: "현재 위치" })
+     · 카드 이름 앞에 ①②③ 큰 번호를 붙이고
+     · 목록 맨 아래에 어떤 순서인지 한 줄로 알려 준다.
+   순서 자체는 위젯이 그리기 전에 맞춰 둔다(거리순이면 가까운 곳이 ①번).
+   ════════════════════════════════════════════════════════════ */
+(function () {
+  "use strict";
+  var 동그라미 = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩"];
+  function mark(nodes, opt) {
+    var JG = window.JG;
+    nodes = (nodes || []).filter(Boolean);
+    if (!JG || !nodes.length) return;
+    opt = opt || {};
+    nodes.forEach(function (n, i) {
+      var top = n.querySelector(".top") || n;
+      var b = document.createElement("span");
+      b.className = "jg-num";
+      b.textContent = String(i + 1);
+      b.setAttribute("aria-label", (i + 1) + "번");
+      top.insertBefore(b, top.firstChild);
+    });
+    var 끝 = 동그라미[Math.min(nodes.length, 10) - 1];
+    var 줄 = 동그라미.slice(0, Math.min(nodes.length, 10)).join(" → ");
+    var 무엇 = opt.kind || "병원";
+    var 말;
+    if (nodes.length === 1) {
+      말 = "찾은 " + 무엇 + "은 한 곳이에요.";
+    } else if (opt.order === "rating") {
+      말 = "①번이 정부 평가 등급이 가장 좋은 " + 무엇 + "이에요. " + 줄 + " 순서예요.";
+    } else if (opt.order === "specialist") {
+      말 = "①번이 전문의가 가장 많은 " + 무엇 + "이에요. " + 줄 + " 순서예요.";
+    } else {
+      말 = "①번이 가장 가까운 " + 무엇 + "이에요. " + 줄 + " 순서로 멀어져요.";
+    }
+    if (opt.from && opt.order !== "rating" && opt.order !== "specialist" && nodes.length > 1) {
+      말 += " (거리는 " + opt.from + " 기준)";
+    }
+    var note = JG.node('<div class="jg-order"></div>');
+    note.textContent = 말;
+    var last = nodes[nodes.length - 1];
+    if (last.nextSibling) last.parentNode.insertBefore(note, last.nextSibling);
+    else last.parentNode.appendChild(note);
+  }
+  window.JGOrder = { mark: mark };
+})();
