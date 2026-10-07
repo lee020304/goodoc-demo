@@ -830,6 +830,16 @@
      키는 서버에만 있고 화면은 소리(mp3)만 받는다. 실패하면 이 기기 목소리로 바로 넘어간다.
      공개판(깃허브)은 서버가 없어 이 기기 목소리를 그대로 쓴다. */
   var 소리 = null, 원격꺼짐 = false;
+  /* 아이폰은 사람이 누른 직후가 아니면 소리 재생을 막는다. 대답은 몇 초 뒤에 오므로
+     처음 화면을 누를 때 재생기 하나를 '무음 재생'으로 깨워 두고, 그 재생기로 계속 튼다 (2026-10-07) */
+  var 재생기 = window.Audio ? new Audio() : null, 깨움 = false;
+  var 무음 = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=";
+  function 재생기깨우기() {
+    if (깨움 || !재생기) return;
+    깨움 = true;
+    try { 재생기.src = 무음; var p = 재생기.play(); if (p && p.catch) p.catch(function () { 깨움 = false; }); } catch (e) { 깨움 = false; }
+  }
+  ["touchend", "click", "keydown"].forEach(function (ev) { document.addEventListener(ev, 재생기깨우기, true); });
   function 원격주소() {
     var JG = window.JG;
     if (!JG) return "";
@@ -850,24 +860,47 @@
     if (!parts.length) return;
     onstate = stateCb || null;
     if (원격가능()) {
-      var a = new Audio(원격주소() + "?speed=" + (rate() < 0.9 ? 0.8 : 0.9) + "&text=" + encodeURIComponent(said));
+      // 목소리를 fetch 로 받아(어느 사이트인지 표시가 붙는다) 깨워 둔 재생기로 튼다.
+      // 긴 대답은 만드는 데 4초쯤 걸려서, 첫 문장만 먼저 받아 바로 틀고 나머지는 동시에 받아 이어 튼다
+      var a = 재생기 || new Audio();
       소리 = a;
+      var 묶음 = parts.length > 1 ? [parts[0], parts.slice(1).join(" ")] : [said];
+      var 받기 = 묶음.map(function (글) {
+        return fetch(원격주소() + "?speed=" + (rate() < 0.9 ? 0.8 : 0.9) + "&text=" + encodeURIComponent(글))
+          .then(function (r) { if (!r.ok) throw new Error("tts " + r.status); return r.blob(); });
+      });
+      var 시작됨 = false, 순서 = 0;
       var 대신 = function () {
-        if (my !== token) return;
+        if (my !== token || 소리 !== a) return;
         원격꺼짐 = true;                       // 한 번 실패하면 이번 화면에서는 이 기기 목소리로
         setTimeout(function () { 원격꺼짐 = false; }, 60000);   // 1분 뒤 다시 시도
-        소리 = null; 기기로(my, parts);
+        try { a.pause(); } catch (e) {}
+        소리 = null;
+        기기로(my, 시작됨 ? parts.slice(1) : parts);   // 이미 읽은 첫 문장은 다시 읽지 않는다
       };
-      a.onerror = 대신;
-      // 8초 안에 소리가 나지 않으면(인터넷이 느리거나 막힘) 이 기기 목소리로 넘어간다
-      var 시작됨 = false;
-      setTimeout(function () {
-        if (!시작됨 && my === token && 소리 === a) { try { a.pause(); } catch (e) {} 대신(); }
-      }, 8000);
+      var 틀기 = function (i) {
+        받기[i].then(function (blob) {
+          if (my !== token || 소리 !== a) return;
+          try { if (a.__url) URL.revokeObjectURL(a.__url); } catch (e) {}
+          a.__url = URL.createObjectURL(blob);
+          a.src = a.__url;
+          순서 = i;
+          var p = a.play();
+          if (p && p.catch) p.catch(function (e) { if (!e || e.name !== "AbortError") 대신(); });
+          // 받은 뒤 5초 안에 소리가 나지 않으면 이 기기 목소리로
+          if (i === 0) setTimeout(function () { if (!시작됨 && my === token && 소리 === a) 대신(); }, 5000);
+        }).catch(대신);
+      };
+      a.onerror = function () { if (a.src && a.src.indexOf("blob:") === 0) 대신(); };
       a.onplaying = function () { 시작됨 = true; if (my === token && onstate) onstate(true); };
-      a.onended = function () { if (my === token && onstate) { var f = onstate; onstate = null; f(false); } };
-      var p = a.play();
-      if (p && p.catch) p.catch(대신);       // 자동 재생이 막혀도 이 기기 목소리로
+      a.onended = function () {
+        if (my !== token || 소리 !== a) return;
+        if (순서 + 1 < 받기.length) { 틀기(순서 + 1); return; }
+        if (onstate) { var f = onstate; onstate = null; f(false); }
+      };
+      틀기(0);
+      // 인터넷이 아주 느려 15초가 지나도 첫 소리를 못 받으면 이 기기 목소리로
+      setTimeout(function () { if (!시작됨 && my === token && 소리 === a) 대신(); }, 15000);
       return;
     }
     기기로(my, parts);
