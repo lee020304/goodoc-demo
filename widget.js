@@ -185,7 +185,8 @@
   function 낱말있나(w, t) {
     if (w.length === 1) return new RegExp("(^|[^가-힣])" + w + "(?=[이가을를은는도에의만랑]|\\s|$)").test(t);
     if (w.length <= 2) return new RegExp("(^|[^가-힣])" + w).test(t);
-    return t.indexOf(w) >= 0;
+    // 세 글자 이상은 띄어쓰기 무시 ('복숭아 뼈' 처럼 받아쓰기가 띄어 쓰는 일이 많다)
+    return t.indexOf(w) >= 0 || t.replace(/\s/g, "").indexOf(w.replace(/\s/g, "")) >= 0;
   }
   var SIDE_WORDS = [["왼쪽", "왼쪽"], ["왼편", "왼쪽"], ["좌측", "왼쪽"], ["오른쪽", "오른쪽"],
                     ["오른편", "오른쪽"], ["우측", "오른쪽"], ["양쪽", "양쪽"], ["양", "양쪽"],
@@ -1715,7 +1716,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202610071211")
+    pharmLoading = fetch("pharmacies.json?v=202610071252")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
