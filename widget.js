@@ -935,7 +935,7 @@
        계속 듣게 두고, 말이 멎은 뒤 1.6초가 지나면 우리가 끝낸다. */
     // 안드로이드 크롬은 계속 듣기(continuous)에서 앞에 들은 말을 다시 보내는 등 오작동이 많아
     // 한 번 말하면 끝나는 방식으로 듣는다 (2026-10-07 영훈 휴대폰: "한 번밖에 인식을 못 한다")
-    rec.continuous = !/Android/i.test(navigator.userAgent);
+    rec.continuous = !/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);   // 아이폰도 (2026-10-07 진단)
     rec.interimResults = true;
     rec.maxAlternatives = 1;
     voice.lastFinal = "";
@@ -1765,7 +1765,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202610071422")
+    pharmLoading = fetch("pharmacies.json?v=202610071431")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();

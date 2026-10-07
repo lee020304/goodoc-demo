@@ -232,7 +232,8 @@
       if (document.querySelector(".jg-voice-note")) return;
       var box = add(
         '<div class="jg-voice-note"><b>말로 묻기 전에 알려드려요</b>' +
-        '<div>말소리는 이 브라우저를 만든 회사(예: 크롬은 Google)의 서버에서 글자로 바뀔 수 있어요. ' +
+        '<div>' + (g.server ? '말소리는 받아쓰기 회사(일레븐랩스, 미국)의 서버에서 글자로 바뀌어요. 녹음은 저장하지 않아요. '
+                            : '말소리는 이 브라우저를 만든 회사(예: 크롬은 Google)의 서버에서 글자로 바뀔 수 있어요. ') +
         '이 서비스는 질문 내용을 저장하지 않아요.</div>' +
         '<div class="jg-row"><button type="button" class="ok">알겠어요, 말할게요</button>' +
         '<button type="button" class="no">글자로 쓸게요</button></div></div>');
