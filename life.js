@@ -472,3 +472,37 @@
                    quickValue: quickValue,
                    _shown: function () { return shown; } };
 })();
+
+
+/* ════════════════════════════════════════════════════════════
+   글씨 크기 (2026-10-07 피드백 : 고령자를 위한 글씨 크기 변경)
+   '가+' 단추를 누를 때마다 보통 → 크게 → 아주 크게 → 보통.
+   고른 크기는 이 기기 브라우저에만 기억한다(다음에 열어도 그대로).
+   ════════════════════════════════════════════════════════════ */
+(function () {
+  "use strict";
+  var KEY = "jg_font_v1", 이름 = ["보통", "크게", "아주 크게"];
+  var lv = 0;
+  try { lv = Math.max(0, Math.min(2, +localStorage.getItem(KEY) || 0)); } catch (e) {}
+  function apply() {
+    var h = document.documentElement;
+    h.classList.remove("fs-1", "fs-2");
+    if (lv) h.classList.add("fs-" + lv);
+    var 버튼 = document.querySelectorAll(".fs-toggle");
+    for (var i = 0; i < 버튼.length; i++) {
+      버튼[i].setAttribute("aria-label", "글씨 크기 " + 이름[lv] + ". 눌러서 바꾸기");
+      버튼[i].title = "글씨 크기 : " + 이름[lv];
+      var l = 버튼[i].querySelector(".fs-label");
+      if (l) l.textContent = ["글씨 크게", "글씨 더 크게", "글씨 보통으로"][lv];
+    }
+  }
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest(".fs-toggle");
+    if (!b) return;
+    lv = (lv + 1) % 3;
+    try { localStorage.setItem(KEY, String(lv)); } catch (err) {}
+    apply();
+  });
+  apply();
+  window.JGFont = { level: function () { return lv; } };
+})();

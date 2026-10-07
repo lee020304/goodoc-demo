@@ -1619,7 +1619,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202610061146")
+    pharmLoading = fetch("pharmacies.json?v=202610071036")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
@@ -1843,6 +1843,19 @@
   setupVoice();
 
   el.fab.addEventListener("click", open);
+
+  // 홈의 큰 마이크 : 한 번 누르면 상담 창이 열리고 바로 듣기 시작한다 (2026-10-07 피드백)
+  var bigMic = document.getElementById("big-mic");
+  if (bigMic) bigMic.addEventListener("click", function () {
+    open();
+    if (el.mic && !el.mic.hidden) el.mic.click();   // 같은 누름 안에서 시작해야 휴대폰이 마이크를 허락한다
+    else el.input.focus();                           // 음성인식이 없는 브라우저는 글자 입력으로
+  });
+  var typeInstead = document.getElementById("type-instead");
+  if (typeInstead) typeInstead.addEventListener("click", function () {
+    open();
+    setTimeout(function () { el.input.focus(); }, 50);
+  });
   el.close.addEventListener("click", close);
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape" && !el.panel.hidden) close();
