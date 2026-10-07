@@ -890,14 +890,27 @@
     });
   }
 
+  // 앞 말과 겹치면 하나만 남긴다 ("머리" + "머리 아파" → "머리 아파", "머리 아파" + "머리 아파" → "머리 아파")
+  function 겹침없이(앞, 새) {
+    if (!앞) return 새;
+    var a = 앞.replace(/\s/g, ""), b = 새.replace(/\s/g, "");
+    if (b.indexOf(a) === 0) return 새;          // 새 말이 앞 말을 포함(누적)
+    if (a.indexOf(b) >= 0) return 앞;           // 이미 들어 있음
+    return 앞 + " " + 새;
+  }
+
   function 듣기시작() {
+    // 앱이 읽어 주는 소리를 다시 받아쓰지 않게, 들을 때는 읽기를 멈춘다
+    if (window.JGSay) JGSay.stop();
     var rec = new SR();
     voice.rec = rec;
     rec.lang = "ko-KR";
     /* 2026-09-15 확인 — "광주 남구"라고 말했는데 "광주"까지만 잡히는 일이 있었다.
        continuous 가 false 면 잠깐 숨을 고르는 사이에도 인식이 끝나 버린다.
        계속 듣게 두고, 말이 멎은 뒤 1.6초가 지나면 우리가 끝낸다. */
-    rec.continuous = true;
+    // 안드로이드 크롬은 계속 듣기(continuous)에서 앞에 들은 말을 다시 보내는 등 오작동이 많아
+    // 한 번 말하면 끝나는 방식으로 듣는다 (2026-10-07 영훈 휴대폰: "한 번밖에 인식을 못 한다")
+    rec.continuous = !/Android/i.test(navigator.userAgent);
     rec.interimResults = true;
     rec.maxAlternatives = 1;
     voice.lastFinal = "";
@@ -919,13 +932,17 @@
       voiceBar(true, "듣고 있어요. 말씀해 주세요");
     };
     rec.onresult = function (e) {
-      var 중간 = "", 확정 = "";
-      for (var i = e.resultIndex; i < e.results.length; i++) {
-        var t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) 확정 += t; else 중간 += t;
+      // 결과를 이어 붙이지 않고 매번 처음부터 다시 정리한다.
+      // 휴대폰 크롬은 앞서 들은 말을 다시 보내는 일이 있어, 이어 붙이면
+      // "머리 아파머리 아파머리 아파" 처럼 되어 못 알아들었다 (2026-10-07)
+      var 확정 = "", 중간 = "";
+      for (var i = 0; i < e.results.length; i++) {
+        var t = String(e.results[i][0].transcript || "").trim();
+        if (!t) continue;
+        if (e.results[i].isFinal) 확정 = 겹침없이(확정, t); else 중간 = 겹침없이(중간, t);
       }
-      if (확정) voice.lastFinal += 확정;
-      var 지금 = (voice.lastFinal + 중간).trim();
+      voice.lastFinal = 확정;
+      var 지금 = (중간 ? 겹침없이(확정, 중간) : 확정).trim();
       if (지금) {
         el.input.value = 지금;
         voiceBar(true, "“" + 지금 + "”");
@@ -1716,7 +1733,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202610071343")
+    pharmLoading = fetch("pharmacies.json?v=202610071408")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
