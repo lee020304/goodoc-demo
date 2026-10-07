@@ -624,16 +624,47 @@
     var lv = window.JGFont ? window.JGFont.level() : 0;
     return lv >= 1 ? 0.8 : 0.9;
   }
+  /* 서버판은 일레븐랩스 'Alice · v4' 목소리로 읽는다 (2026-10-07 영훈이 휴대폰 비교에서 고름).
+     키는 서버에만 있고 화면은 소리(mp3)만 받는다. 실패하면 이 기기 목소리로 바로 넘어간다.
+     공개판(깃허브)은 서버가 없어 이 기기 목소리를 그대로 쓴다. */
+  var 소리 = null, 원격꺼짐 = false;
+  function 원격가능() { return !!(window.JG && window.JG.server) && !원격꺼짐 && window.Audio; }
+
   function stop() {
     token++;
     try { S.cancel(); } catch (e) {}
+    if (소리) { try { 소리.pause(); } catch (e) {} 소리 = null; }
     if (onstate) { var f = onstate; onstate = null; f(false); }
   }
   function speak(text, stateCb) {
     stop();
-    var my = token, parts = sentences(normalize(text));
+    var my = token, said = normalize(text), parts = sentences(said);
     if (!parts.length) return;
     onstate = stateCb || null;
+    if (원격가능()) {
+      var a = new Audio("/api/tts/say?speed=" + (rate() < 0.9 ? 0.8 : 0.9) + "&text=" + encodeURIComponent(said));
+      소리 = a;
+      var 대신 = function () {
+        if (my !== token) return;
+        원격꺼짐 = true;                       // 한 번 실패하면 이번 화면에서는 이 기기 목소리로
+        setTimeout(function () { 원격꺼짐 = false; }, 60000);   // 1분 뒤 다시 시도
+        소리 = null; 기기로(my, parts);
+      };
+      a.onerror = 대신;
+      // 8초 안에 소리가 나지 않으면(인터넷이 느리거나 막힘) 이 기기 목소리로 넘어간다
+      var 시작됨 = false;
+      setTimeout(function () {
+        if (!시작됨 && my === token && 소리 === a) { try { a.pause(); } catch (e) {} 대신(); }
+      }, 8000);
+      a.onplaying = function () { 시작됨 = true; if (my === token && onstate) onstate(true); };
+      a.onended = function () { if (my === token && onstate) { var f = onstate; onstate = null; f(false); } };
+      var p = a.play();
+      if (p && p.catch) p.catch(대신);       // 자동 재생이 막혀도 이 기기 목소리로
+      return;
+    }
+    기기로(my, parts);
+  }
+  function 기기로(my, parts) {
     ready(function () {
       if (my !== token) return;
       // 안드로이드 크롬은 멈추기(cancel) 바로 뒤의 첫 말을 흘리는 일이 있어 잠깐 쉰다
@@ -664,7 +695,7 @@
   });
 
   window.JGSay = { speak: speak, stop: stop, normalize: normalize,
-                   voiceName: function () { return chosen ? chosen.name : null; } };
+                   voiceName: function () { return 원격가능() ? "일레븐랩스 Alice" : (chosen ? chosen.name : null); } };
 })();
 
 /* ════════════════════════════════════════════════════════════
