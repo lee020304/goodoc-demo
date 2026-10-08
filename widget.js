@@ -826,7 +826,7 @@
     if (!voice.speakOn) return;
     읽은카드수 += 1;
     if (읽은카드수 === 2) {
-      읽기예약("나머지는 화면에서 봐주세요.");
+      읽기예약("나머지는 화면에서 봐주세요. AI가 고른 참고 결과예요. 가기 전에 병원에 꼭 확인하세요.");   // 2026-10-08 피드백 : AI 결과를 무조건 믿지 않게
       return;
     }
     if (읽은카드수 > 2) return;
@@ -1927,7 +1927,7 @@
   function ensurePharm() {
     if (PHARM.length) return Promise.resolve(PHARM);
     if (pharmLoading) return pharmLoading;
-    pharmLoading = fetch("pharmacies.json?v=202610071721")
+    pharmLoading = fetch("pharmacies.json?v=202610081447")
       .then(function (r) {
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
