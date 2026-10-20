@@ -1,0 +1,29 @@
+# ── 비밀 정보 (공개 저장소이므로 특히 중요) ──────────────
+.env
+.env.*
+!.env.example
+*credential*
+*credentials*
+*secret*
+*.pem
+*.key
+id_rsa*
+token.json
+client_secret*.json
+service-account*.json
+
+# ── 의존성 / 빌드 산출물 ─────────────────────────────
+node_modules/
+dist/
+build/
+.next/
+.vercel/
+*.log
+npm-debug.log*
+
+# ── 시스템 파일 ────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+*.swp
